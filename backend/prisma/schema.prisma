@@ -123,6 +123,7 @@ model MarketplaceListing {
   title                 String
   description           String?
   imageUrl              String?
+  imagesJson            String?              // JSON array de imagens adicionais [{id,url,isMain,order}]
   categoryId            String?
   status                String               @default("ACTIVE") // ACTIVE, PAUSED, CLOSED
   listingUrl            String?
@@ -149,6 +150,7 @@ model MarketplaceVariation {
   externalModelId       String?
   variationName         String
   attributesJson        String?
+  imageUrl              String?              // imagem própria da variação
   currentSku            String
   price                 Float
   stock                 Int

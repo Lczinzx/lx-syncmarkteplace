@@ -114,6 +114,7 @@ export class ImportService {
             price: Number(v.price),
             stock: Number(v.stock),
             status: (v.status as string) || 'ACTIVE',
+            imageUrl: (v.imageUrl as string) || null,
             updatedAt: new Date()
           },
           create: {
@@ -125,7 +126,8 @@ export class ImportService {
             currentSku: v.currentSku as string,
             price: Number(v.price),
             stock: Number(v.stock),
-            status: (v.status as string) || 'ACTIVE'
+            status: (v.status as string) || 'ACTIVE',
+            imageUrl: (v.imageUrl as string) || null
           }
         });
         totalVariations++;

@@ -13,6 +13,7 @@ export interface DemoVariationSpec {
   price: number;
   stock: number;
   status: string;
+  imageUrl?: string;
 }
 
 export interface DemoListingSpec {
@@ -65,6 +66,15 @@ function nextListingId(): string {
   return 'FDM-' + String(listingCounter).padStart(4, '0');
 }
 
+// Imagens DEMO determinísticas (seeded) — consistentes entre execuções
+function demoImage(seed: string, w = 200, h = 200): string {
+  return `https://picsum.photos/seed/${seed}/${w}/${h}`;
+}
+
+function listingImage(externalListingId: string): string {
+  return demoImage(`lx-${externalListingId}`, 360, 360);
+}
+
 function buildSku(prefix: string | undefined, size: string, theme: string, code: string): string {
   if (prefix) return `${prefix} - ${size} - ${theme} - ${code}`;
   return `${size} - ${theme} - ${code}`;
@@ -94,7 +104,7 @@ function buildListing(
     externalProductId: productId,
     title,
     description: `${themeName} em tecido sublimado com elástico. Qualidade Festum Decor.`,
-    imageUrl: 'assets/logo.svg',
+    imageUrl: listingImage(externalListingId),
     categoryId,
     status,
     listingUrl: `https://shopee.com.br/product/FESTUM/${externalListingId}`,
@@ -105,7 +115,8 @@ function buildListing(
       currentSku: v.sku,
       price: priceBase * (1 + i * 0.07),
       stock: v.stock,
-      status
+      status,
+      imageUrl: demoImage(`lx-${externalListingId}-var-${i + 1}`, 160, 160)
     }))
   };
 }

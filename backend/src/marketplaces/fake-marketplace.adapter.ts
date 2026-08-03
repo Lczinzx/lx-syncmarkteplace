@@ -132,7 +132,8 @@ export class FakeMarketplaceAdapter implements MarketplaceAdapter {
       currentSku: v.currentSku,
       price: v.price,
       stock: v.stock,
-      status: v.status
+      status: v.status,
+      imageUrl: v.imageUrl || found.imageUrl
     }));
   }
 
