@@ -52,6 +52,7 @@ export interface MarketplaceVariationDTO {
   externalModelId?: string;
   variationName: string;
   attributes?: Record<string, string>;
+  imageUrl?: string;
   currentSku: string;
   price: number;
   stock: number;
