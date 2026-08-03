@@ -21,7 +21,7 @@ dotenv.config();
 function maskClientId(clientId: string | undefined): string {
   if (!clientId) return 'NÃO CONFIGURADO';
   if (clientId.length <= 12) return clientId;
-  return `...${clientId.slice(-25)}`;
+  return `${clientId.slice(0, 20)}...`;
 }
 
 const bootClientId = process.env.GOOGLE_CLIENT_ID;
