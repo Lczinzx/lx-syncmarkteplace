@@ -1,0 +1,4 @@
+# Garante que arquivos SQL das migrations sejam tratados como texto UTF-8
+# (evita que sejam commitados como binário/UTF-16 e causa erro P3015 no
+# prisma migrate deploy em produção)
+*.sql text eol=lf
