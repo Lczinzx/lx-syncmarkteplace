@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { FakeMarketplaceAdapter } from '../marketplaces/fake-marketplace.adapter.js';
+import { MarketplaceAdapter } from '../marketplaces/marketplace-adapter.interface.js';
 
 export interface ImportAccountConfig {
   id: string;
@@ -34,13 +35,14 @@ export class ImportService {
   static async executeImportJob(
     client: PrismaClient,
     accountConfig: ImportAccountConfig,
-    requestedByEmail: string
+    requestedByEmail: string,
+    adapterOverride?: MarketplaceAdapter
   ): Promise<ImportJobSummary> {
     const jobId = `job-imp-${Date.now()}`;
-    const adapter = new FakeMarketplaceAdapter(accountConfig.marketplace, accountConfig.id);
+    const adapter = adapterOverride || new FakeMarketplaceAdapter(accountConfig.marketplace, accountConfig.id);
 
     // 1. Busca anúncios e variações no adapter (MODO DEMONSTRAÇÃO)
-    const listingsRes = await adapter.listListings({ limit: 50 });
+    const listingsRes = await adapter.listListings({ limit: 100 });
     const listingsWithVars: Array<Record<string, unknown>> = [];
 
     for (const listing of listingsRes.listings) {

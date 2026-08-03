@@ -120,7 +120,16 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 **5. Conta DEMO criada no PostgreSQL:** Sim (se `ENABLE_DEMO_SEED=true`).
 
 **6. URL final de importação:** `POST https://lx-sync-api.onrender.com/api/marketplace-accounts/:id/import` (contrato inalterado) — passa a persistir `ImportJob`, `MarketplaceListing` e `MarketplaceVariation` via Prisma.
-- *(Status HTTP e quantidades reais de anúncios/variações importadas: pendente do teste público pós-deploy.)*
+- **Teste público pós-deploy (validado):** a importação DEMO funcionou no ambiente público — 2 anúncios criados, 0 atualizados, 4 variações sincronizadas (com o dataset antigo).
+
+**6b. Conjunto DEMO expandido (`demo-data.ts`):**
+- Gerador determinístico `generateDemoMarketplaceData()` (IDs fixos `FDM-0001...`, sem `Date.now()`) usado pelo `FakeMarketplaceAdapter` — **50 anúncios / 129 variações** (1–5 variações por anúncio).
+- 7 temas reais Festum Decor (Zoologico 04, Jardim Encantado 12, Setembro Amarelo 03, Natal 08, Fundo do Mar 05, Infantil 07, Arraia 02) × 6 tipos (Painel Redondo, Redondo Grande, Cilindro, Banner Retangular, Capa de Porta, Topper pausado).
+- SKUs reais: `Z - Red50 - Zoologico - 04`, `Ret H 150_220 - Fundo do Mar - 05`, `Rom200 - Setembro Amarelo - 03`, `DFRom200 - Natal - 08`, `CPM140 - Arraia - 02`, `Port85 - Infantil - 07`, etc.
+- Casos especiais de MatchingService: SKU idêntico em anúncios distintos (licenciada), variações de espaços/separadores (`Z-Red100-Zoologico-04`), caixa baixa (`z - red80 - zoologico - 04`), títulos semelhantes, mesmo tema/código com medidas diferentes, anúncios SEM SKU, SKUs parcialmente incompatíveis (código igual/tema diferente) e anúncio premium com 5 variações.
+- Estados variados: anúncios ativos e pausados, variações com estoque zero e estoque baixo, preços distintos por tema/tamanho.
+- Importação idempotente: 1ª importação cria, 2ª atualiza (upsert por `marketplaceAccountId_externalListingId` / `marketplaceListingId_externalVariationId`), sem duplicatas; `ImportService.executeImportJob` aceita adapter opcional (produção inalterada).
+- **Isolamento**: o dataset só é usado pelo adapter DEMO da conta `acc-shopee-demo` — nunca se mistura com contas reais; `ENABLE_DEMO_SEED=true` continua sendo a proteção de ativação.
 
 **7. Tratamento 404 no frontend:** remoção do card da conta, recarga da lista via `GET /api/marketplace-accounts`, aviso "Esta conta não existe mais. A lista de contas foi atualizada." e **nenhum reenvio automático** do POST.
 
@@ -128,9 +137,9 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 **9. Arquivos alterados:**
 - Frontend: `app.js`, `services/account-source.js` (novo), `services/storage.js`, `services/api/accounts-api.js`, `services/sync-engine.js`, `services/batch-publisher.js`, `tests/account-source.test.js` (novo), `package.json`.
-- Backend: `src/server.ts`, `src/services/accounts.service.ts` (novo), `src/services/demo-seed.service.ts` (novo), `src/services/import.service.ts`, `src/utils/prisma-errors.ts` (novo), `prisma/seed.ts`, `package.json`, `.env.example`, `prisma/migrations/**` (novo).
+- Backend: `src/server.ts`, `src/services/accounts.service.ts` (novo), `src/services/demo-seed.service.ts` (novo), `src/services/import.service.ts`, `src/utils/prisma-errors.ts` (novo), `prisma/seed.ts`, `package.json`, `.env.example`, `prisma/migrations/**` (novo), `src/marketplaces/demo-data.ts` (novo), `src/marketplaces/fake-marketplace.adapter.ts`, `src/tests/demo-data.test.ts` (novo).
 
-**10. Testes executados:** Backend **25** testes (novo grupo 7: erros amigáveis do Prisma P2021) + Fase 3 (OK) • Frontend 10/10 (OK) • `prisma validate`, `prisma generate`, `npm run build` (backend + frontend) OK.
+**10. Testes executados:** Backend **53** (32 + novo grupo DEMO **21**) + Fase 3 (OK) • Frontend 10/10 (OK) • `prisma validate`, `prisma generate`, `npm run build` (backend + frontend) OK.
 
 **11. Migrations PostgreSQL (Prisma Migrate):**
 - A pasta `backend/prisma/migrations` **não existia** antes (por isso o erro P2021 em produção).
