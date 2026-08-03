@@ -448,19 +448,24 @@ function setupEventListeners() {
 }
 
 async function handleGoogleLoginSimulated() {
-  const emailSelect = document.getElementById('login-admin-email-select');
+  const emailInput = document.getElementById('login-google-email-input');
   const statusMsg = document.getElementById('auth-status-msg');
-  const selectedEmail = emailSelect.value.trim();
+  const enteredEmail = (emailInput ? emailInput.value : '').trim();
 
-  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Autenticando com o Google...</span>`;
+  if (!enteredEmail) {
+    statusMsg.innerHTML = `<span style="color:#F59E0B;">⚠️ Digite o e-mail da sua Conta do Google para entrar.</span>`;
+    return;
+  }
+
+  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Autenticando com a Conta do Google...</span>`;
 
   setTimeout(async () => {
-    if (StorageService.isAdmin(selectedEmail)) {
-      const name = selectedEmail.split('@')[0].replace('.', ' ');
+    if (StorageService.isAdmin(enteredEmail)) {
+      const name = enteredEmail.split('@')[0].replace('.', ' ');
       const formattedName = name.charAt(0).toUpperCase() + name.slice(1);
       
       const userObj = {
-        email: selectedEmail,
+        email: enteredEmail,
         name: formattedName,
         role: 'Admin',
         avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(formattedName)}&background=EF4444&color=fff`,
@@ -471,7 +476,7 @@ async function handleGoogleLoginSimulated() {
       currentUser = userObj;
       updateUserProfileBadge(userObj);
 
-      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Autenticado com sucesso como Administrador!</span>`;
+      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Administrador Identificado! Acesso Liberado.</span>`;
       
       setTimeout(() => {
         const authModal = document.getElementById('modal-auth-login');
@@ -480,7 +485,11 @@ async function handleGoogleLoginSimulated() {
       }, 500);
 
     } else {
-      statusMsg.innerHTML = `<span style="color:#F87171; font-weight:700;">❌ Acesso Negado: O e-mail <code>${escapeHtml(selectedEmail)}</code> não possui permissões de Administrador!</span>`;
+      statusMsg.innerHTML = `<div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); padding: 12px; border-radius: 8px; color: #F87171; font-size: 12px; margin-top: 8px; text-align: center;">
+        🚨 <strong>ACESSO NEGADO</strong><br>
+        O e-mail <code>${escapeHtml(enteredEmail)}</code> não possui permissões de Administrador.<br>
+        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Apenas contas administradoras possuem autorização de entrada.</span>
+      </div>`;
     }
   }, 400);
 }
