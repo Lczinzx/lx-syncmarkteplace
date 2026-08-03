@@ -1,7 +1,17 @@
-/**
- * Storage Service - LX Sync Marketplace
- * Gerencia a persistência local usando chrome.storage.local (ou localStorage em ambiente de teste).
- */
+const APP_STORAGE_VERSION = 4;
+
+function runStorageMigration() {
+  if (typeof localStorage === 'undefined') return;
+  const currentVersion = localStorage.getItem('lx_storage_version');
+  if (!currentVersion || parseInt(currentVersion, 10) < APP_STORAGE_VERSION) {
+    localStorage.removeItem('lx_skus');
+    localStorage.removeItem('lx_logs');
+    localStorage.setItem('lx_storage_version', String(APP_STORAGE_VERSION));
+    console.log(`🧹 [STORAGE] Migração para versão ${APP_STORAGE_VERSION} concluída. Dados legados removidos.`);
+  }
+}
+
+runStorageMigration();
 
 const STORAGE_KEYS = {
   SKUS: 'lx_skus',

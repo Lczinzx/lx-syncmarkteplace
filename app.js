@@ -7,6 +7,55 @@ import { SyncEngine } from './services/sync-engine.js';
 import { BatchPublisher } from './services/batch-publisher.js';
 import { apiFetch } from './services/api/api-client.js';
 
+export function showNotification(type = 'info', title = '', message = '', actionLabel = null, onAction = null) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast-card toast-${type}`;
+  toast.style.cssText = `
+    background: rgba(22, 19, 22, 0.95);
+    border: 1px solid ${type === 'success' ? '#10B981' : type === 'warning' ? '#F59E0B' : type === 'error' ? '#EF4444' : '#3B82F6'};
+    border-radius: 12px;
+    padding: 14px 18px;
+    color: #fff;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 15px ${type === 'success' ? 'rgba(16,185,129,0.2)' : type === 'error' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)'};
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    animation: slideInRight 0.3s ease;
+  `;
+
+  const iconMap = {
+    success: '✅',
+    warning: '⚠️',
+    error: '🚨',
+    info: 'ℹ️'
+  };
+
+  toast.innerHTML = `
+    <div style="font-size: 20px; flex-shrink: 0;">${iconMap[type] || 'ℹ️'}</div>
+    <div style="flex: 1;">
+      <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 2px 0;">${escapeHtml(title)}</h4>
+      <p style="font-size: 12px; color: var(--text-muted); margin: 0; line-height: 1.4;">${escapeHtml(message)}</p>
+      ${actionLabel ? `<button class="btn btn-secondary btn-sm toast-action-btn" style="margin-top: 8px; font-size: 11px;">${escapeHtml(actionLabel)}</button>` : ''}
+    </div>
+    <button class="toast-close-btn" style="background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 0;">&times;</button>
+  `;
+
+  const closeBtn = toast.querySelector('.toast-close-btn');
+  if (closeBtn) closeBtn.addEventListener('click', () => toast.remove());
+
+  if (actionLabel && onAction) {
+    const actionBtn = toast.querySelector('.toast-action-btn');
+    if (actionBtn) actionBtn.addEventListener('click', () => { onAction(); toast.remove(); });
+  }
+
+  container.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 6000);
+}
+
 let currentSkus = [];
 let currentLogs = [];
 let currentSettings = {};
@@ -399,10 +448,10 @@ function renderAccountsGrid() {
         const data = await apiFetch(`/api/marketplace-accounts/${btn.dataset.id}/import`, {
           method: 'POST'
         });
-        alert(`✅ ${data.message || 'Importação realizada com sucesso!'}`);
+        showNotification('success', 'Importação Concluída', data.message || 'Anúncios e variações importados com sucesso!');
         await refreshData();
       } catch (e) {
-        alert(`🚨 Falha ao importar anúncios: ${e.message}`);
+        showNotification('error', 'Falha na Importação', e.message);
       } finally {
         btn.disabled = false;
         btn.innerHTML = `📥 Importar Anúncios`;
@@ -413,7 +462,7 @@ function renderAccountsGrid() {
   container.querySelectorAll('.btn-test-acc').forEach(btn => {
     btn.addEventListener('click', () => {
       const acc = currentAccounts.find(a => a.id === btn.dataset.id);
-      alert(`✅ Conexão com ${acc ? (acc.accountName || acc.sellerName || acc.name) : 'conta'} testada com sucesso! Status: Ativo.`);
+      showNotification('success', 'Teste de Conexão', `Conexão com ${acc ? (acc.accountName || acc.sellerName || acc.name) : 'conta'} testada com sucesso! Status: Ativo.`);
     });
   });
 
@@ -548,6 +597,118 @@ function setupEventListeners() {
       }
     });
   }
+
+  setupImageUpload();
+}
+
+let uploadedImages = [];
+
+function setupImageUpload() {
+  const dropzone = document.getElementById('image-upload-dropzone');
+  const fileInput = document.getElementById('multi-post-file-input');
+  const thumbnailsContainer = document.getElementById('image-upload-thumbnails');
+
+  if (!dropzone || !fileInput) return;
+
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.style.borderColor = '#EF4444';
+    dropzone.style.background = 'rgba(239, 68, 68, 0.1)';
+  });
+
+  dropzone.addEventListener('dragleave', () => {
+    dropzone.style.borderColor = 'rgba(239,68,68,0.4)';
+    dropzone.style.background = 'rgba(0,0,0,0.25)';
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.style.borderColor = 'rgba(239,68,68,0.4)';
+    dropzone.style.background = 'rgba(0,0,0,0.25)';
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleImageFiles(Array.from(e.dataTransfer.files));
+    }
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleImageFiles(Array.from(e.target.files));
+    }
+  });
+}
+
+function handleImageFiles(files) {
+  const thumbnailsContainer = document.getElementById('image-upload-thumbnails');
+  const hiddenInput = document.getElementById('mp-image');
+
+  files.forEach(file => {
+    if (!file.type.match(/^image\/(jpeg|png|webp)$/i)) {
+      showNotification('warning', 'Formato Inválido', `O arquivo "${file.name}" não é um formato de imagem válido (JPG, PNG, WEBP).`);
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showNotification('warning', 'Tamanho Excedido', `O arquivo "${file.name}" excede o tamanho máximo de 5MB.`);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      const imgObj = {
+        id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        name: file.name,
+        dataUrl,
+        isPrimary: uploadedImages.length === 0
+      };
+      uploadedImages.push(imgObj);
+      renderUploadedThumbnails();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderUploadedThumbnails() {
+  const container = document.getElementById('image-upload-thumbnails');
+  const hiddenInput = document.getElementById('mp-image');
+  if (!container) return;
+
+  if (uploadedImages.length > 0 && hiddenInput) {
+    const primary = uploadedImages.find(i => i.isPrimary) || uploadedImages[0];
+    hiddenInput.value = primary.dataUrl;
+  }
+
+  container.innerHTML = uploadedImages.map((img, idx) => `
+    <div style="position: relative; width: 78px; height: 78px; border-radius: 10px; overflow: hidden; border: 2px solid ${img.isPrimary ? '#EF4444' : 'rgba(255,255,255,0.1)'}; background: #000;">
+      <img src="${img.dataUrl}" style="width: 100%; height: 100%; object-fit: cover;" alt="${escapeHtml(img.name)}">
+      ${img.isPrimary ? '<span style="position: absolute; top: 2px; left: 2px; background: #EF4444; color: #fff; font-size: 8px; font-weight: 800; padding: 2px 4px; border-radius: 4px;">PRINCIPAL</span>' : ''}
+      <div style="position: absolute; bottom: 2px; right: 2px; display: flex; gap: 2px;">
+        <button type="button" class="btn-set-primary" data-id="${img.id}" style="background: rgba(0,0,0,0.7); border: none; color: #FBBF24; font-size: 10px; cursor: pointer; padding: 2px 4px; border-radius: 4px;" title="Definir como principal">⭐</button>
+        <button type="button" class="btn-remove-img" data-id="${img.id}" style="background: rgba(239,68,68,0.8); border: none; color: #fff; font-size: 10px; cursor: pointer; padding: 2px 4px; border-radius: 4px;" title="Remover imagem">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.btn-set-primary').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      uploadedImages.forEach(i => i.isPrimary = (i.id === btn.dataset.id));
+      renderUploadedThumbnails();
+    });
+  });
+
+  container.querySelectorAll('.btn-remove-img').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      uploadedImages = uploadedImages.filter(i => i.id !== btn.dataset.id);
+      if (uploadedImages.length > 0 && !uploadedImages.some(i => i.isPrimary)) {
+        uploadedImages[0].isPrimary = true;
+      }
+      renderUploadedThumbnails();
+    });
+  });
 }
 
 function triggerRealGoogleSSO() {

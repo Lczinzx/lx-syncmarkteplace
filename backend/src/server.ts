@@ -406,8 +406,33 @@ app.post('/api/sku-changes/jobs/:id/rollback-confirm', authenticateToken, async 
   return res.json({ success: true, rollbackJob: result });
 });
 
+/* ==========================================
+   ROTA DE UPLOAD DIRETO DE IMAGENS (FASE 3.7)
+   ========================================== */
+app.post('/api/uploads/images', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { filename, dataUrl } = req.body;
+
+  if (!dataUrl) {
+    return res.status(400).json({ success: false, error: 'String de dados da imagem (dataUrl) é obrigatória.' });
+  }
+
+  const imageId = `img-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+
+  return res.json({
+    success: true,
+    image: {
+      id: imageId,
+      organizationId: req.user!.organizationId,
+      originalFilename: filename || 'imagem-anuncio.jpg',
+      previewUrl: dataUrl,
+      status: 'READY',
+      createdAt: new Date().toISOString()
+    }
+  });
+});
+
 app.get('/health', (req: Request, res: Response) => {
-  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend REST API (Fase 3.5)', time: new Date().toISOString() });
+  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend REST API (Fase 3.7)', time: new Date().toISOString() });
 });
 
 app.get('/health/live', (req: Request, res: Response) => {
