@@ -35,10 +35,10 @@ export class SyncEngine {
   }
 
   /**
-   * Instancia o adapter adequado para um marketplace específico (Legado/Compatibilidade)
+   * Instancia o adapter adequado para um marketplace específico
+   * (as contas vêm da API — nunca de storage local)
    */
-  static async getAdapter(marketplaceKey) {
-    const accounts = await StorageService.getAccounts();
+  static async getAdapter(marketplaceKey, accounts = []) {
     const accountConfig = accounts.find(a => a.platform === marketplaceKey || a.id === marketplaceKey) || { platform: marketplaceKey };
     return await this.getAdapterForAccount(accountConfig);
   }
@@ -56,14 +56,13 @@ export class SyncEngine {
   /**
    * Sincroniza um único SKU Master para todas as contas e canais mapeados
    */
-  static async syncSku(skuId, triggerSource = 'manual') {
+  static async syncSku(skuId, triggerSource = 'manual', accounts = []) {
     const skus = await StorageService.getSkus();
     const skuIndex = skus.findIndex(s => s.id === skuId);
     if (skuIndex === -1) throw new Error(`SKU ID ${skuId} não encontrado.`);
 
     const sku = skus[skuIndex];
     const settings = await StorageService.getSettings();
-    const accounts = await StorageService.getAccounts();
     const targetStock = this.calculateEffectiveStock(sku, settings);
 
     const results = [];
@@ -156,12 +155,12 @@ export class SyncEngine {
   /**
    * Sincroniza todos os SKUs Master em lote
    */
-  static async syncAllSkus(triggerSource = 'bulk_auto') {
+  static async syncAllSkus(triggerSource = 'bulk_auto', accounts = []) {
     const skus = await StorageService.getSkus();
     const batchResults = [];
 
     for (const sku of skus) {
-      const res = await this.syncSku(sku.id, triggerSource);
+      const res = await this.syncSku(sku.id, triggerSource, accounts);
       batchResults.push(res);
     }
 
@@ -172,7 +171,7 @@ export class SyncEngine {
    * Simula a ocorrência de uma nova venda em determinado marketplace
    * Reduz 1 unidade do estoque total e dispara a propagação imediata para os outros
    */
-  static async simulateSale(skuId, marketplaceKey) {
+  static async simulateSale(skuId, marketplaceKey, accounts = []) {
     const skus = await StorageService.getSkus();
     const sku = skus.find(s => s.id === skuId);
     if (!sku) throw new Error('SKU não encontrado');
@@ -201,6 +200,6 @@ export class SyncEngine {
     });
 
     // Dispara propagação imediata
-    return await this.syncSku(skuId, `propagacao_venda_${marketplaceKey}`);
+    return await this.syncSku(skuId, `propagacao_venda_${marketplaceKey}`, accounts);
   }
 }

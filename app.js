@@ -8,6 +8,7 @@ import { BatchPublisher } from './services/batch-publisher.js';
 import { apiFetch } from './services/api/api-client.js';
 import { AuthAPI } from './services/api/auth-api.js';
 import { AccountsAPI } from './services/api/accounts-api.js';
+import { extractAccountsFromResponse, normalizeAccountsFromApi, isAccountNotFoundError } from './services/account-source.js';
 
 export function showNotification(type = 'info', title = '', message = '', actionLabel = null, onAction = null) {
   const container = document.getElementById('toast-container');
@@ -85,14 +86,17 @@ async function initApp() {
 async function refreshAccountsFromAPI() {
   try {
     const res = await AccountsAPI.getAccounts();
-    if (res && res.accounts) {
-      currentAccounts = res.accounts;
-      await StorageService.setAccounts(res.accounts);
-    }
+    // FONTE ÚNICA: resposta da API. Nunca usa localStorage/chrome.storage.
+    const apiAccounts = extractAccountsFromResponse(res);
+    currentAccounts = normalizeAccountsFromApi(apiAccounts);
+    console.log(`[ACCOUNTS] ${currentAccounts.length} conta(s) carregada(s) do backend:`, currentAccounts.map(a => a.id));
   } catch (err) {
-    console.warn('⚠️ Falha ao carregar contas da API backend:', err.message);
-    currentAccounts = await StorageService.getAccounts();
+    // Sem fallback local: lista vazia + aviso amigável
+    currentAccounts = [];
+    console.error('[ACCOUNTS] Falha ao carregar contas da API (sem fallback local):', err.message);
+    showNotification('error', 'Contas indisponíveis', 'Não foi possível carregar as contas do servidor.');
   }
+  renderAllViews();
 }
 
 async function checkAuthSession() {
@@ -253,7 +257,7 @@ function renderOverviewAccounts() {
   if (currentAccounts.length === 0) {
     container.innerHTML = `
       <div class="card" style="grid-column: 1/-1; text-align: center; padding: 32px; border-color: rgba(239, 68, 68, 0.2);">
-        <h4 style="font-size: 14px; color: #fff; margin-bottom: 6px;">Nenhuma conta de marketplace conectada</h4>
+        <h4 style="font-size: 14px; color: #fff; margin-bottom: 6px;">Nenhuma conta cadastrada.</h4>
         <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Adicione sua primeira loja para visualizar o status de sincronização no dashboard.</p>
         <button class="btn btn-primary btn-sm" id="btn-overview-add-acc" style="font-weight: 700;">+ Adicionar primeira conta</button>
       </div>`;
@@ -285,7 +289,7 @@ function renderOverviewAccounts() {
           <span class="status-chip ${acc.status === 'CONNECTED' || acc.connected ? 'connected' : ''}">${acc.status === 'CONNECTED' || acc.connected ? 'Ativo' : 'Desconectado'}</span>
         </div>
         <div class="channel-metrics">
-          <div class="metric"><span class="m-label">Modo</span><span class="m-val" style="color:#FBBF24;">${acc.isDemo || acc.isDemo !== false ? 'DEMO' : 'REAL'}</span></div>
+          <div class="metric"><span class="m-label">Modo</span><span class="m-val" style="color:#FBBF24;">${acc.isDemo === true ? 'DEMO' : 'REAL'}</span></div>
           <div class="metric"><span class="m-label">Status Sync</span><span class="m-val text-green">${acc.status === 'CONNECTED' || acc.connected ? '100% OK' : 'Alerta'}</span></div>
         </div>
       </div>
@@ -369,7 +373,7 @@ async function handleStockStep(id, step) {
   const newStock = Math.max(0, sku.totalStock + step);
   sku.totalStock = newStock;
   await StorageService.updateSku(sku);
-  await SyncEngine.syncSku(id, 'ajuste_manual_web');
+  await SyncEngine.syncSku(id, 'ajuste_manual_web', currentAccounts);
   await refreshData();
 }
 
@@ -415,7 +419,7 @@ function renderAccountsGrid() {
     container.innerHTML = `
       <div class="card" style="grid-column: 1/-1; text-align: center; padding: 48px; border-color: rgba(239, 68, 68, 0.2);">
         <div style="font-size: 32px; margin-bottom: 12px;">🔌</div>
-        <h3 style="font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 6px;">Nenhuma conta de marketplace conectada</h3>
+        <h3 style="font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 6px;">Nenhuma conta cadastrada.</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">Conecte sua primeira loja para sincronizar anúncios e SKUs.</p>
         <button class="btn btn-primary" id="btn-add-first-account" style="padding: 10px 20px; font-weight: 700; border-radius: 10px;">
           + Adicionar primeira conta
@@ -439,7 +443,7 @@ function renderAccountsGrid() {
   container.innerHTML = currentAccounts.map(acc => {
     const meta = platformBadges[acc.platform] || { badgeClass: 'meli-bg', label: 'MP', name: acc.platformName || acc.platform };
     return `
-      <div class="card channel-config-card">
+      <div class="card channel-config-card" data-account-card="${acc.id}">
         <div class="channel-card-top">
           <div class="channel-icon ${meta.badgeClass}" style="flex-shrink:0;">${meta.label}</div>
           <div style="flex: 1; overflow: hidden;">
@@ -447,7 +451,7 @@ function renderAccountsGrid() {
               <h3 style="font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">
                 ${escapeHtml(acc.accountName || acc.sellerName || acc.name || meta.name)}
               </h3>
-              ${acc.isDemo || acc.isDemo !== false ? '<span style="background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.4); color: #FBBF24; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">CONTA DE DEMONSTRAÇÃO</span>' : ''}
+              ${acc.isDemo === true ? '<span style="background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.4); color: #FBBF24; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">CONTA DE DEMONSTRAÇÃO</span>' : ''}
             </div>
             <p style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin: 0;">
               ${escapeHtml(meta.name)} • ID: <code class="code-tag">${escapeHtml(acc.sellerId || acc.shopId || acc.id)}</code>
@@ -462,9 +466,9 @@ function renderAccountsGrid() {
             <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Sync: ${formatTime(acc.lastSyncAt || acc.lastSync)}</span>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button class="btn btn-primary btn-sm btn-import-acc" data-id="${acc.id}" style="flex: 1; justify-content: center;">📥 Importar Anúncios</button>
-            <button class="btn btn-secondary btn-sm btn-test-acc" data-id="${acc.id}">🧪 Testar</button>
-            <button class="btn btn-danger-outline btn-sm btn-delete-acc" data-id="${acc.id}">🗑️ Excluir</button>
+            <button class="btn btn-primary btn-sm btn-import-acc" data-account-id="${acc.id}" style="flex: 1; justify-content: center;">📥 Importar Anúncios</button>
+            <button class="btn btn-secondary btn-sm btn-test-acc" data-account-id="${acc.id}">🧪 Testar</button>
+            <button class="btn btn-danger-outline btn-sm btn-delete-acc" data-account-id="${acc.id}">🗑️ Excluir</button>
           </div>
         </div>
       </div>
@@ -473,17 +477,23 @@ function renderAccountsGrid() {
 
   container.querySelectorAll('.btn-import-acc').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const acc = currentAccounts.find(a => a.id === btn.dataset.id);
+      const accountId = btn.dataset.accountId;
+      const acc = currentAccounts.find(a => a.id === accountId);
       btn.disabled = true;
       btn.innerHTML = `<span class="spinning">🔄</span> Importando...`;
       try {
-        const data = await apiFetch(`/api/marketplace-accounts/${btn.dataset.id}/import`, {
-          method: 'POST'
-        });
-        showNotification('success', 'Importação Concluída', data.message || 'Anúncios e variações importados com sucesso!');
-        await refreshData();
+        const data = await AccountsAPI.importAccountListings(accountId);
+        const summary = data.summary || {};
+        showNotification('success', 'Importação Concluída', summary.message || data.message || 'Anúncios e variações importados com sucesso!');
+        await refreshAccountsFromAPI();
       } catch (e) {
-        showNotification('error', 'Falha na Importação', e.message);
+        if (isAccountNotFoundError(e)) {
+          // 404: conta não existe mais no backend
+          showNotification('warning', 'Conta Removida', 'Esta conta não existe mais. A lista de contas foi atualizada.');
+          await refreshAccountsFromAPI();
+        } else {
+          showNotification('error', 'Falha na Importação', e.message);
+        }
       } finally {
         btn.disabled = false;
         btn.innerHTML = `📥 Importar Anúncios`;
@@ -493,20 +503,32 @@ function renderAccountsGrid() {
 
   container.querySelectorAll('.btn-test-acc').forEach(btn => {
     btn.addEventListener('click', () => {
-      const acc = currentAccounts.find(a => a.id === btn.dataset.id);
+      const acc = currentAccounts.find(a => a.id === btn.dataset.accountId);
       showNotification('success', 'Teste de Conexão', `Conexão com ${acc ? (acc.accountName || acc.sellerName || acc.name) : 'conta'} testada com sucesso! Status: Ativo.`);
     });
   });
 
   container.querySelectorAll('.btn-edit-acc').forEach(btn => {
-    btn.addEventListener('click', () => openAccountModal(btn.dataset.id));
+    btn.addEventListener('click', () => openAccountModal(btn.dataset.accountId));
   });
 
   container.querySelectorAll('.btn-delete-acc').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (confirm('Tem certeza que deseja remover esta conta de marketplace?')) {
-        await StorageService.deleteAccount(btn.dataset.id);
-        await refreshData();
+      const accountId = btn.dataset.accountId;
+      if (!confirm('Tem certeza que deseja remover esta conta de marketplace?')) return;
+      btn.disabled = true;
+      try {
+        await AccountsAPI.deleteAccount(accountId);
+        showNotification('success', 'Conta Removida', 'A conta foi removida do servidor.');
+      } catch (e) {
+        if (isAccountNotFoundError(e)) {
+          showNotification('warning', 'Conta Removida', 'Esta conta não existe mais. A lista de contas foi atualizada.');
+        } else {
+          showNotification('error', 'Falha ao Remover', e.message);
+        }
+      } finally {
+        btn.disabled = false;
+        await refreshAccountsFromAPI();
       }
     });
   });
@@ -517,7 +539,7 @@ function renderMultiPostAccountsList() {
   if (!container) return;
 
   if (currentAccounts.length === 0) {
-    container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px;">Nenhuma conta conectada. Adicione contas na aba "Canais & APIs".</div>`;
+    container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px;">Nenhuma conta cadastrada. Adicione contas na aba "Canais & APIs".</div>`;
     return;
   }
 
@@ -872,7 +894,7 @@ async function handleSyncAllHeader() {
   if (icon) icon.classList.add('spinning');
 
   try {
-    await SyncEngine.syncAllSkus('manual_web');
+    await SyncEngine.syncAllSkus('manual_web', currentAccounts);
     await refreshData();
     alert('✅ Sincronização concluída em todos os canais conectados!');
   } catch (err) {
@@ -980,7 +1002,7 @@ async function handleSimulateSaleSubmit(e) {
     if (sku && sku.totalStock > 0) {
       sku.totalStock -= 1;
       await StorageService.updateSku(sku);
-      await SyncEngine.syncSku(skuId, 'simulacao_venda_' + channelKey);
+      await SyncEngine.syncSku(skuId, 'simulacao_venda_' + channelKey, currentAccounts);
     }
     document.getElementById('modal-sale').classList.remove('active');
     await refreshData();
@@ -1079,7 +1101,7 @@ function exportLogsCsv() {
 
 async function refreshData() {
   currentSettings = await StorageService.getSettings();
-  currentAccounts = await StorageService.getAccounts();
+  // Contas NÃO são lidas do storage: única fonte é GET /api/marketplace-accounts
   currentSkus = await StorageService.getSkus();
   currentLogs = await StorageService.getLogs();
   renderAllViews();
@@ -1140,25 +1162,35 @@ async function handleSaveAccount(e) {
   const sellerId = document.getElementById('acc-seller-id').value.trim();
   const token = document.getElementById('acc-token').value.trim();
 
-  const accountData = {
-    platform,
-    sellerName,
-    name: sellerName,
+  // Payload para o backend (única fonte: PostgreSQL)
+  const accountPayload = {
+    marketplace: platform,
+    accountName: sellerName,
     sellerId,
-    apiToken: token,
-    partnerKey: token,
-    appKey: token
+    shopId: sellerId,
+    externalAccountId: sellerId,
+    accessToken: token,
+    isDemo: false
   };
 
-  if (accId) {
-    await StorageService.updateAccount(accId, accountData);
-  } else {
-    await StorageService.addAccount(accountData);
-  }
+  const submitBtn = document.getElementById('acc-submit-btn') || null;
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '🔄 Salvando...'; }
 
-  document.getElementById('modal-account').classList.remove('active');
-  await refreshData();
-  alert(`✅ Conta "${sellerName}" salva com sucesso!`);
+  try {
+    if (accId) {
+      await AccountsAPI.updateAccount(accId, accountPayload);
+    } else {
+      await AccountsAPI.createAccount(accountPayload);
+    }
+
+    document.getElementById('modal-account').classList.remove('active');
+    await refreshAccountsFromAPI();
+    showNotification('success', 'Conta Salva', `Conta "${sellerName}" salva no servidor com sucesso!`);
+  } catch (err) {
+    showNotification('error', 'Falha ao Salvar Conta', err.message);
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Salvar Conta'; }
+  }
 }
 
 async function handleBatchPublish() {
@@ -1180,6 +1212,14 @@ async function handleBatchPublish() {
 
   if (selectedAccountIds.length === 0) {
     alert('Selecione pelo menos uma conta de destino para publicar.');
+    return;
+  }
+
+  // Bloqueia publicação usando IDs que não existem no backend
+  const validSelected = currentAccounts.filter(a => selectedAccountIds.includes(a.id));
+  if (validSelected.length !== selectedAccountIds.length) {
+    alert('Uma ou mais contas selecionadas não existem mais no backend. Atualize a lista de contas.');
+    await refreshAccountsFromAPI();
     return;
   }
 
@@ -1234,7 +1274,7 @@ async function handleBatchPublish() {
   };
 
   try {
-    await BatchPublisher.publishToAccounts(productData, selectedAccountIds, updateAccountProgressCard);
+    await BatchPublisher.publishToAccounts(productData, selectedAccountIds, updateAccountProgressCard, currentAccounts);
     
     btnClose.style.display = 'inline-flex';
     document.getElementById('form-multipost').reset();

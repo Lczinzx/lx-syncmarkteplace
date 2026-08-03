@@ -9,12 +9,13 @@ import { SyncEngine } from './sync-engine.js';
 export class BatchPublisher {
   /**
    * Publica um produto simultaneamente em múltiplas contas de marketplaces.
-   * 
+   *
    * @param {Object} productData - { masterSku, title, category, unitPrice, totalStock, description, imageUrl, channelOverrides }
-   * @param {Array<string>} targetAccountIds - Lista de IDs das contas selecionadas para postagem
-   * @param {Function} onProgress - Callback para atualizar interface em tempo real (accountId, status, detail)
+   * @param {Array<string>} targetAccountIds - IDs das contas selecionadas
+   * @param {Function} onProgress - Callback para atualizar interface (accountId, status, detail)
+   * @param {Array<Object>} accounts - Contas ATUAIS vindas da API (fonte única)
    */
-  static async publishToAccounts(productData, targetAccountIds, onProgress = null) {
+  static async publishToAccounts(productData, targetAccountIds, onProgress = null, accounts = []) {
     if (!targetAccountIds || targetAccountIds.length === 0) {
       throw new Error('Selecione pelo menos uma conta para publicar.');
     }
@@ -23,11 +24,14 @@ export class BatchPublisher {
       throw new Error('Título, SKU Master e Preço são obrigatórios.');
     }
 
-    const allAccounts = await StorageService.getAccounts();
-    const selectedAccounts = allAccounts.filter(a => targetAccountIds.includes(a.id));
+    // Somente IDs que existem na lista atual da API
+    const selectedAccounts = accounts.filter(a => targetAccountIds.includes(a.id));
 
     if (selectedAccounts.length === 0) {
-      throw new Error('Nenhuma conta válida foi selecionada.');
+      throw new Error('Nenhuma conta válida foi selecionada. Atualize a lista de contas (API).');
+    }
+    if (selectedAccounts.length < targetAccountIds.length) {
+      throw new Error('Uma ou mais contas selecionadas não existem mais no backend. Atualize a lista.');
     }
 
     // Inicializa progresso na interface

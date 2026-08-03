@@ -1,21 +1,47 @@
-const APP_STORAGE_VERSION = 4;
+import {
+  APP_STORAGE_VERSION,
+  LEGACY_ACCOUNT_KEYS,
+  migrateAccountsStorageV5
+} from './account-source.js';
 
 function runStorageMigration() {
   if (typeof localStorage === 'undefined') return;
   const currentVersion = localStorage.getItem('lx_storage_version');
-  if (!currentVersion || parseInt(currentVersion, 10) < APP_STORAGE_VERSION) {
-    localStorage.removeItem('lx_skus');
-    localStorage.removeItem('lx_logs');
+  const needsMigration = !currentVersion || parseInt(currentVersion, 10) < APP_STORAGE_VERSION;
+
+  // Migração v5: remove chaves obsoletas de contas (API é a única fonte)
+  if (needsMigration) {
+    const migration = migrateAccountsStorageV5(localStorage);
     localStorage.setItem('lx_storage_version', String(APP_STORAGE_VERSION));
-    console.log(`🧹 [STORAGE] Migração para versão ${APP_STORAGE_VERSION} concluída. Dados legados removidos.`);
+    console.log(
+      `🧹 [STORAGE] Migração para versão ${APP_STORAGE_VERSION} concluída. ` +
+      `Chaves de contas removidas: ${migration.removedKeys.join(', ') || 'nenhuma'}.`
+    );
   }
 }
 
+// Também limpa o chrome.storage (contexto de extensão) das chaves de contas legadas
+function purgeChromeStorageAccounts() {
+  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+  chrome.storage.local.get(null, (all) => {
+    if (!all) return;
+    const keysToRemove = LEGACY_ACCOUNT_KEYS.filter(k => all[k] !== undefined);
+    const extra = [];
+    for (const key of Object.keys(all)) {
+      const normalized = key.toLowerCase();
+      if (normalized.includes('account') || normalized.includes('conta') || normalized.includes('marketplace')) {
+        if (!keysToRemove.includes(key)) keysToRemove.push(key);
+      }
+    }
+    if (keysToRemove.length > 0) chrome.storage.local.remove(keysToRemove);
+  });
+}
+
 runStorageMigration();
+purgeChromeStorageAccounts();
 
 const STORAGE_KEYS = {
   SKUS: 'lx_skus',
-  ACCOUNTS: 'lx_accounts',
   SETTINGS: 'lx_settings',
   LOGS: 'lx_logs',
   AUTH_USER: 'lx_auth_user'
@@ -35,31 +61,6 @@ const DEFAULT_SETTINGS = {
   notifyOnSyncError: true,
   notifyOnLowStock: true
 };
-
-const DEFAULT_ACCOUNTS = [
-  {
-    id: 'acc-shopee-1',
-    platform: 'shopee',
-    platformName: 'Shopee',
-    sellerId: '2035668',
-    sellerName: 'Festum Decor - Shopee Oficial',
-    connected: true,
-    status: 'active',
-    isDemo: true,
-    lastSync: new Date().toISOString()
-  },
-  {
-    id: 'acc-meli-1',
-    platform: 'meli',
-    platformName: 'Mercado Livre',
-    sellerId: 'MLB_SELLER_9876',
-    sellerName: 'Festum Decor - Mercado Livre',
-    connected: true,
-    status: 'active',
-    isDemo: true,
-    lastSync: new Date().toISOString()
-  }
-];
 
 const DEFAULT_SKUS = [];
 
@@ -145,76 +146,33 @@ export class StorageService {
     return true;
   }
 
-  // --- Conexões / Contas ---
+  // --- Conexões / Contas (FONTE ÚNICA: GET /api/marketplace-accounts) ---
+  // O StorageService NÃO persiste mais contas de marketplace.
+  // Contas vivem exclusivamente no PostgreSQL e são carregadas pela API.
   static async getAccounts() {
-    let accounts = await this.get(STORAGE_KEYS.ACCOUNTS, DEFAULT_ACCOUNTS);
-    // Se for formato legado (objeto), converte para Array
-    if (accounts && !Array.isArray(accounts)) {
-      const converted = [];
-      for (const [platformKey, accData] of Object.entries(accounts)) {
-        converted.push({
-          id: `acc-${platformKey}-1`,
-          platform: platformKey,
-          platformName: accData.name || platformKey,
-          sellerId: accData.sellerId || '',
-          sellerName: accData.sellerName || accData.name || '',
-          connected: accData.connected !== false,
-          status: accData.status || 'active',
-          lastSync: accData.lastSync || new Date().toISOString(),
-          ...accData
-        });
-      }
-      accounts = converted;
-      await this.saveAccounts(accounts);
-    }
-    return accounts;
+    return [];
   }
 
-  static async saveAccounts(accounts) {
-    return await this.set(STORAGE_KEYS.ACCOUNTS, accounts);
+  static async saveAccounts() {
+    return true;
   }
 
-  static async getAccountById(id) {
-    const accounts = await this.getAccounts();
-    return accounts.find(a => a.id === id);
+  static async getAccountById() {
+    return null;
   }
 
-  static async addAccount(accountData) {
-    const accounts = await this.getAccounts();
-    const platformNames = { meli: 'Mercado Livre', shopee: 'Shopee', tiktok: 'TikTok Shop', amazon: 'Amazon BR' };
-    const newAccount = {
-      id: `acc-${accountData.platform}-${Date.now()}`,
-      platformName: platformNames[accountData.platform] || accountData.platform,
-      connected: true,
-      status: 'active',
-      lastSync: new Date().toISOString(),
-      ...accountData
-    };
-    accounts.push(newAccount);
-    await this.saveAccounts(accounts);
-    return newAccount;
+  static async addAccount() {
+    console.warn('[STORAGE] Contas são gerenciadas pela API (POST /api/marketplace-accounts).');
+    return null;
   }
 
-  static async updateAccount(idOrKey, accountData) {
-    const accounts = await this.getAccounts();
-    const index = accounts.findIndex(a => a.id === idOrKey || a.platform === idOrKey);
-    if (index !== -1) {
-      accounts[index] = {
-        ...accounts[index],
-        ...accountData,
-        lastSync: new Date().toISOString()
-      };
-      await this.saveAccounts(accounts);
-      return accounts[index];
-    } else {
-      return await this.addAccount({ id: idOrKey, ...accountData });
-    }
+  static async updateAccount() {
+    console.warn('[STORAGE] Contas são gerenciadas pela API (PUT /api/marketplace-accounts/:id).');
+    return null;
   }
 
-  static async deleteAccount(id) {
-    const accounts = await this.getAccounts();
-    const filtered = accounts.filter(a => a.id !== id);
-    await this.saveAccounts(filtered);
+  static async deleteAccount() {
+    console.warn('[STORAGE] Contas são gerenciadas pela API (DELETE /api/marketplace-accounts/:id).');
     return true;
   }
 

@@ -63,19 +63,26 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
-### 6. 🔒 Autenticação Google OAuth JWT & Controle RBAC
-- Integração nativa com a API REST de autenticação (`POST /api/auth/google` & `GET /api/auth/me`).
-- Emissão e envio automático de cabeçalho `Authorization: Bearer <token>` em 100% das chamadas HTTP.
-- **E-mails Administradores Autorizados**:
+### 6. 🔒 Autenticação Google OAuth Real (Identity Services) JWT & Controle RBAC
+- **Login real com Google Identity Services (GIS)**: botão oficial do Google renderizado via `google.accounts.id.renderButton` (substituindo o antigo login simulado por `prompt()`).
+- O frontend envia **somente o Google ID Token** (`credential`) ao backend — nunca e-mail/nome/avatar digitados.
+- **Validação estrita no servidor (`verifyGoogleToken`)** com `verifyIdToken`:
+  - Assinatura criptográfica válida, `audience` igual ao `GOOGLE_CLIENT_ID`, `issuer` = `accounts.google.com` e `email_verified === true`.
+  - **Nenhum fallback** é permitido: tokens inválidos sempre geram erro.
+- Rejeição de payloads inseguros (`email`, `name`, `avatar`, `token` direto) com respostas de erro estruturadas (`GOOGLE_CREDENTIAL_REQUIRED`, `INVALID_GOOGLE_CREDENTIAL`, `EMAIL_NOT_AUTHORIZED`).
+- Emissão de JWT de sessão (24h) com **`JWT_SECRET` obrigatório** e envio automático de `Authorization: Bearer <token>` em 100% das chamadas HTTP; validação de sessão via `GET /api/auth/me`.
+- **E-mails Administradores Autorizados** (via env `ADMIN_EMAILS`):
   - `lucasoliveiradossantos008@gmail.com`
   - `festumcontato@gmail.com`
 - Bloqueio estrito de contas não autorizadas com mensagem amigável no cliente.
+- **Hardening de configuração**: `backend/.env` removido do versionamento (segredos fora do git), `.env.example` documentando `GOOGLE_CLIENT_ID`, `JWT_SECRET`, `ENCRYPTION_KEY`, `ADMIN_EMAILS` e `FRONTEND_URL`.
+- **Diagnóstico no boot do servidor**: log mascarado do `GOOGLE_CLIENT_ID` em uso, status do `JWT_SECRET` e quantidade de e-mails admin autorizados.
 
 ---
 
 ### 7. 🔔 Componente de Notificações Toast UI & Limpeza de Dados
 - Substituição total de alertas nativos (`alert()`) por notificações visuais interativas (`showNotification()`) com cores por severidade (Verde, Vermelho, Amarelo, Azul).
-- **Migrador Automático de Armazenamento (`APP_STORAGE_VERSION = 4`)**: Purga automática de dados mock legados nos navegadores dos usuários.
+- **Migrador Automático de Armazenamento (`APP_STORAGE_VERSION = 5`)**: purga automática de contas legadas (`lx_accounts`, `marketplaceAccounts`, `selectedAccountId`, etc.) nos navegadores — a fonte de contas passou a ser exclusivamente o backend (ver seção 10).
 
 ---
 
@@ -86,9 +93,51 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
+### 9. 🧪 Suíte de Testes Automatizados
+- **Backend (22 testes + fase 3)**: validação de e-mails admin, criptografia AES-256-GCM, adapter simulado e segurança do OAuth; contrato do `/api/auth/google` (rejeição de credential ausente, texto aleatório, e-mail como token e JWT falso) e JWT interno (geração, verificação e rejeição de secret diferente).
+- **Frontend (10 testes)**: detecção de IDs legados (`acc-shopee-1785758705262`), extração/normalização de contas da API, migração v5 (remoção de chaves legadas preservando SKUs), fonte única sem fallback local, detecção de 404 `MARKETPLACE_ACCOUNT_NOT_FOUND` e conta DEMO somente quando o backend envia `isDemo=true`.
+
+---
+
+### 10. 📋 Relatório Final — Correção da Fonte de Contas (API como Única Fonte)
+
+**1. Origem exata do ID antigo (`acc-shopee-1785758705262`):**
+- Gerado localmente no navegador por `StorageService.addAccount()` (`services/storage.js`, padrão `acc-${platform}-${Date.now()}`) ao cadastrar uma conta na aba "Canais & APIs".
+- O ID **nunca existiu no PostgreSQL** — era apenas um cache local (`lx_accounts` no `localStorage`), o que causava o erro 404 na importação e o encerramento da sessão de uso daquele ID.
+
+**2. Chaves de contas legadas removidas na migração v5:**
+- `lx_accounts`, `marketplaceAccounts`, `connectedAccounts`, `selectedAccountId`, `publisherSelectedAccounts`, `demoAccounts`, `accounts` + varredura de qualquer chave contendo `account`/`conta`/`marketplace` (inclui IDs `acc-<mp>-<timestamp>` no conteúdo).
+- `StorageService.getAccounts/saveAccounts/addAccount/updateAccount/deleteAccount` agora são stubs (não persistem contas) — **proibido qualquer fallback local**.
+
+**3. Resposta de `GET /api/marketplace-accounts` (fonte única):**
+- Lista real vinda do PostgreSQL via Prisma: `{ success: true, accounts: [...] }` com `id`, `marketplace`, `accountName`, `sellerId`, `shopId`, `status`, `isDemo`, `lastSyncAt`, `lastImportAt`.
+- *(Validação do corpo da resposta no ambiente público: pendente do teste público pós-deploy.)*
+
+**4. ID real utilizado (nenhum timestamp local):**
+- Conta DEMO criada no banco: **`acc-shopee-demo`** (org `org-festum-decor`, "Festum Decor", Shopee, `isDemo=true`, modo simulado), via upsert idempotente de `ensureDemoData()` protegido por `ENABLE_DEMO_SEED=true`.
+- O botão "Importar Anúncios" usa exclusivamente `data-account-id` da lista da API.
+
+**5. Conta DEMO criada no PostgreSQL:** Sim (se `ENABLE_DEMO_SEED=true`).
+
+**6. URL final de importação:** `POST https://lx-sync-api.onrender.com/api/marketplace-accounts/:id/import` (contrato inalterado) — passa a persistir `ImportJob`, `MarketplaceListing` e `MarketplaceVariation` via Prisma.
+- *(Status HTTP e quantidades reais de anúncios/variações importadas: pendente do teste público pós-deploy.)*
+
+**7. Tratamento 404 no frontend:** remoção do card da conta, recarga da lista via `GET /api/marketplace-accounts`, aviso "Esta conta não existe mais. A lista de contas foi atualizada." e **nenhum reenvio automático** do POST.
+
+**8. Publicador Multi-Post:** usa somente as contas vindas da API; IDs selecionados que não existem mais no backend bloqueiam a publicação com aviso e recarregam a lista.
+
+**9. Arquivos alterados:**
+- Frontend: `app.js`, `services/account-source.js` (novo), `services/storage.js`, `services/api/accounts-api.js`, `services/sync-engine.js`, `services/batch-publisher.js`, `tests/account-source.test.js` (novo), `package.json`.
+- Backend: `src/server.ts`, `src/services/accounts.service.ts` (novo), `src/services/demo-seed.service.ts` (novo), `src/services/import.service.ts`, `package.json`, `.env.example`.
+
+**10. Testes executados:** Backend 22 + Fase 3 (OK) • Frontend 10/10 (OK) • Builds `npm run build` (backend + frontend) OK.
+
+---
+
 ## 🛠️ Arquitetura e Deploy
 
-- **Frontend Netlify (Web App SaaS 24/7)**: [lxsync.netlify.app](https://lxsync.netlify.app/)
-- **Backend API Node.js / Express**: REST API com suporte a CORS, Prisma ORM e PostgreSQL.
+- **Frontend Netlify (Web App SaaS 24/7)**: [lxsync.netlify.app](https://lxsync.netlify.app/) — env var **`VITE_GOOGLE_CLIENT_ID`** (mesmo Client ID do backend) e `VITE_API_URL=https://lx-sync-api.onrender.com`.
+- **Backend API Node.js / Express (Render)**: [lx-sync-api.onrender.com](https://lx-sync-api.onrender.com/) — REST API com CORS restrito por `FRONTEND_URL`, Prisma ORM e PostgreSQL.
+  - Env vars obrigatórias: `GOOGLE_CLIENT_ID`, `JWT_SECRET`, `ENCRYPTION_KEY`, `ADMIN_EMAILS`, `FRONTEND_URL`.
 - **Worker Assíncrono (`worker.ts`)**: Processador isolado da fila de SKUs.
 - **Repositório GitHub**: [github.com/Lczinzx/lx-syncmarkteplace](https://github.com/Lczinzx/lx-syncmarkteplace)

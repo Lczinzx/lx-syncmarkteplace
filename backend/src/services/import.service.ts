@@ -1,62 +1,180 @@
+import { PrismaClient } from '@prisma/client';
 import { FakeMarketplaceAdapter } from '../marketplaces/fake-marketplace.adapter.js';
 
-export interface ListingImportData {
-  externalListingId: string;
-  externalProductId?: string;
-  title: string;
-  description?: string;
-  imageUrl?: string;
-  categoryId?: string;
-  status: string;
-  listingUrl?: string;
-  variations: Array<{
-    externalVariationId: string;
-    externalModelId?: string;
-    variationName: string;
-    attributes?: Record<string, string>;
-    currentSku: string;
-    price: number;
-    stock: number;
-    status: string;
-  }>;
+export interface ImportAccountConfig {
+  id: string;
+  organizationId: string;
+  marketplace: string;
+  accountName: string;
 }
 
+export interface ImportJobSummary {
+  jobId: string;
+  accountId: string;
+  organizationId: string;
+  requestedBy: string;
+  status: string;
+  totalListings: number;
+  processedListings: number;
+  createdListings: number;
+  updatedListings: number;
+  totalVariations: number;
+  processedVariations: number;
+  listings: Array<Record<string, unknown>>;
+  completedAt: string;
+  message: string;
+}
+
+/**
+ * Executa a importação idempotente de anúncios e variações de uma conta de
+ * marketplace (FakeMarketplaceAdapter em modo demonstração) e PERSISTE no
+ * PostgreSQL: ImportJob, MarketplaceListing e MarketplaceVariation (upsert).
+ */
 export class ImportService {
-  /**
-   * Executa a importação idempotente de anúncios e variações de uma conta de marketplace
-   */
   static async executeImportJob(
-    accountConfig: { id: string; organizationId: string; marketplace: string; accountName: string },
+    client: PrismaClient,
+    accountConfig: ImportAccountConfig,
     requestedByEmail: string
-  ) {
+  ): Promise<ImportJobSummary> {
     const jobId = `job-imp-${Date.now()}`;
     const adapter = new FakeMarketplaceAdapter(accountConfig.marketplace, accountConfig.id);
 
-    // Busca anúncios do adapter (MODO DEMONSTRAÇÃO / SIMULADO)
+    // 1. Busca anúncios e variações no adapter (MODO DEMONSTRAÇÃO)
     const listingsRes = await adapter.listListings({ limit: 50 });
-    const listingsWithVars: ListingImportData[] = [];
+    const listingsWithVars: Array<Record<string, unknown>> = [];
 
     for (const listing of listingsRes.listings) {
       const vars = await adapter.listVariations(listing.externalListingId);
-      listingsWithVars.push({
-        ...listing,
-        variations: vars
-      });
+      listingsWithVars.push({ ...listing, variations: vars });
     }
 
+    // 2. Persistência idempotente (upsert por marketplaceAccountId + externalListingId)
     let createdListings = 0;
     let updatedListings = 0;
     let totalVariations = 0;
 
-    listingsWithVars.forEach(l => {
-      totalVariations += l.variations.length;
-      createdListings++;
+    for (const listing of listingsWithVars) {
+      const externalListingId = listing.externalListingId as string;
+      const existing = await client.marketplaceListing.findFirst({
+        where: { marketplaceAccountId: accountConfig.id, externalListingId }
+      });
+
+      const persistedListing = await client.marketplaceListing.upsert({
+        where: {
+          marketplaceAccountId_externalListingId: {
+            marketplaceAccountId: accountConfig.id,
+            externalListingId
+          }
+        },
+        update: {
+          title: listing.title as string,
+          description: (listing.description as string) || null,
+          imageUrl: (listing.imageUrl as string) || null,
+          categoryId: (listing.categoryId as string) || null,
+          status: (listing.status as string) || 'ACTIVE',
+          listingUrl: (listing.listingUrl as string) || null,
+          updatedAt: new Date()
+        },
+        create: {
+          id: `list-${accountConfig.id}-${externalListingId}`,
+          organizationId: accountConfig.organizationId,
+          marketplaceAccountId: accountConfig.id,
+          externalListingId,
+          externalProductId: (listing.externalProductId as string) || null,
+          title: listing.title as string,
+          description: (listing.description as string) || null,
+          imageUrl: (listing.imageUrl as string) || null,
+          categoryId: (listing.categoryId as string) || null,
+          status: (listing.status as string) || 'ACTIVE',
+          listingUrl: (listing.listingUrl as string) || null
+        }
+      });
+
+      if (existing) {
+        updatedListings++;
+      } else {
+        createdListings++;
+      }
+
+      const variations = (listing.variations as Array<Record<string, unknown>>) || [];
+      for (const v of variations) {
+        const externalVariationId = v.externalVariationId as string;
+        await client.marketplaceVariation.upsert({
+          where: {
+            marketplaceListingId_externalVariationId: {
+              marketplaceListingId: persistedListing.id,
+              externalVariationId
+            }
+          },
+          update: {
+            variationName: v.variationName as string,
+            currentSku: v.currentSku as string,
+            price: Number(v.price),
+            stock: Number(v.stock),
+            status: (v.status as string) || 'ACTIVE',
+            updatedAt: new Date()
+          },
+          create: {
+            id: `var-${persistedListing.id}-${externalVariationId}`,
+            organizationId: accountConfig.organizationId,
+            marketplaceListingId: persistedListing.id,
+            externalVariationId,
+            variationName: v.variationName as string,
+            currentSku: v.currentSku as string,
+            price: Number(v.price),
+            stock: Number(v.stock),
+            status: (v.status as string) || 'ACTIVE'
+          }
+        });
+        totalVariations++;
+      }
+    }
+
+    const completedAt = new Date();
+
+    // 3. Registro do ImportJob no PostgreSQL
+    const importJob = await client.importJob.create({
+      data: {
+        organizationId: accountConfig.organizationId,
+        marketplaceAccountId: accountConfig.id,
+        requestedBy: requestedByEmail,
+        status: 'COMPLETED',
+        totalListings: listingsWithVars.length,
+        processedListings: listingsWithVars.length,
+        totalVariations,
+        processedVariations: totalVariations,
+        createdListings,
+        updatedListings,
+        failedListings: 0,
+        startedAt: completedAt,
+        completedAt
+      }
     });
 
-    const summary = {
-      jobId,
-      organizationId: accountConfig.organizationId,
+    // 4. Audit log
+    await client.auditLog.create({
+      data: {
+        organizationId: accountConfig.organizationId,
+        userId: null,
+        action: 'IMPORT_LISTINGS',
+        resourceType: 'MARKETPLACE_ACCOUNT',
+        resourceId: accountConfig.id,
+        marketplace: accountConfig.marketplace,
+        marketplaceAccountId: accountConfig.id,
+        status: 'SUCCESS'
+      }
+    });
+
+    // 5. Atualiza lastImportAt da conta
+    await client.marketplaceAccount.update({
+      where: { id: accountConfig.id },
+      data: { lastImportAt: completedAt, lastSyncAt: completedAt }
+    });
+
+    return {
+      jobId: importJob.id,
       accountId: accountConfig.id,
+      organizationId: accountConfig.organizationId,
       requestedBy: requestedByEmail,
       status: 'COMPLETED',
       totalListings: listingsWithVars.length,
@@ -66,9 +184,8 @@ export class ImportService {
       totalVariations,
       processedVariations: totalVariations,
       listings: listingsWithVars,
-      completedAt: new Date().toISOString()
+      completedAt: completedAt.toISOString(),
+      message: `Importação concluída: ${createdListings} anúncios criados, ${updatedListings} atualizados e ${totalVariations} variações sincronizadas.`
     };
-
-    return summary;
   }
 }

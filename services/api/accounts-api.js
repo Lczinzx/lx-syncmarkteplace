@@ -12,6 +12,19 @@ export const AccountsAPI = {
     });
   },
 
+  async updateAccount(accountId, accountData) {
+    return await apiFetch(`/api/marketplace-accounts/${accountId}`, {
+      method: 'PUT',
+      body: JSON.stringify(accountData)
+    });
+  },
+
+  async deleteAccount(accountId) {
+    return await apiFetch(`/api/marketplace-accounts/${accountId}`, {
+      method: 'DELETE'
+    });
+  },
+
   async testAccount(accountId) {
     return await apiFetch(`/api/marketplace-accounts/${accountId}/test`, {
       method: 'POST'

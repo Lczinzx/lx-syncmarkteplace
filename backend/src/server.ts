@@ -1,10 +1,19 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { PrismaClient } from '@prisma/client';
 import { verifyGoogleToken, generateSessionJWT, verifySessionJWT, isAdminEmail, UserSessionPayload } from './auth/google-auth.service.js';
 import { FakeMarketplaceAdapter } from './marketplaces/fake-marketplace.adapter.js';
-import { encryptSecret, maskSensitiveValue } from './utils/crypto.js';
 import { ImportService } from './services/import.service.js';
+import { ensureDemoData } from './services/demo-seed.service.js';
+import {
+  listMarketplaceAccounts,
+  findAccountByOrg,
+  createMarketplaceAccount,
+  updateMarketplaceAccount,
+  deleteMarketplaceAccount,
+  toAccountView
+} from './services/accounts.service.js';
 import {
   normalizeSkuForComparison,
   normalizeListingTitleForComparison,
@@ -28,6 +37,22 @@ const bootClientId = process.env.GOOGLE_CLIENT_ID;
 console.log(`[AUTH] GOOGLE_CLIENT_ID em uso no servidor: ${maskClientId(bootClientId)}`);
 console.log(`[AUTH] JWT_SECRET: ${process.env.JWT_SECRET ? 'CONFIGURADO' : 'NÃO CONFIGURADO'}`);
 console.log(`[AUTH] ADMIN_EMAILS: ${(process.env.ADMIN_EMAILS || '').split(',').length} e-mail(s) autorizado(s)`);
+
+// Prisma (PostgreSQL) — fonte única das contas de marketplace
+const prisma = new PrismaClient();
+
+// Seed DEMO idempotente e protegido por ENABLE_DEMO_SEED=true
+ensureDemoData(prisma)
+  .then(res => {
+    if (res.enabled) {
+      console.log(`[DEMO-SEED] ${res.seeded ? `Conta DEMO pronta (${res.accountId})` : 'Seed DEMO não executado no boot.'}`);
+    } else {
+      console.log('[DEMO-SEED] Desativado (ENABLE_DEMO_SEED != true).');
+    }
+  })
+  .catch(err => {
+    console.error('[DEMO-SEED] Falha ao executar seed DEMO:', err instanceof Error ? err.message : err);
+  });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -91,33 +116,8 @@ const dbStore = {
       avatarUrl: 'https://ui-avatars.com/api/?name=Festum+Contato&background=991B1B&color=fff'
     }
   ],
-  accounts: [
-    {
-      id: 'acc-shopee-1',
-      organizationId: 'org-festum-decor',
-      marketplace: 'shopee',
-      accountName: 'Festum Decor - Shopee Oficial',
-      sellerId: '2035668',
-      shopId: '2035668',
-      status: 'CONNECTED',
-      isDemo: true,
-      accessTokenEncrypted: encryptSecret('mock_shopee_access_token_123'),
-      lastSyncAt: new Date().toISOString(),
-      lastImportAt: new Date().toISOString()
-    },
-    {
-      id: 'acc-meli-1',
-      organizationId: 'org-festum-decor',
-      marketplace: 'meli',
-      accountName: 'Festum Decor - Mercado Livre',
-      sellerId: 'MLB_SELLER_9876',
-      status: 'CONNECTED',
-      isDemo: true,
-      accessTokenEncrypted: encryptSecret('mock_meli_access_token_456'),
-      lastSyncAt: new Date().toISOString(),
-      lastImportAt: new Date().toISOString()
-    }
-  ],
+  // NOTE: contas de marketplace NÃO são mais mantidas em memória.
+  // Fonte única: tabela marketplace_accounts no PostgreSQL (Prisma).
   listings: [
     {
       id: 'list-1',
@@ -282,28 +282,113 @@ app.get('/api/auth/me', authenticateToken, (req: AuthenticatedRequest, res: Resp
 
 /* ==========================================================================
    ROTAS DE CONTAS E ADAPTER CAPABILITIES (ETAPA 8)
+   Fonte única: PostgreSQL (Prisma) — nada de store em memória ou IDs legados
    ========================================================================== */
 
-app.get('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const safeAccounts = dbStore.accounts.map(acc => ({
-    id: acc.id,
-    marketplace: acc.marketplace,
-    accountName: acc.accountName,
-    sellerId: acc.sellerId,
-    shopId: acc.shopId,
-    status: acc.status,
-    isDemo: acc.isDemo || false,
-    lastSyncAt: acc.lastSyncAt,
-    lastImportAt: acc.lastImportAt
-  }));
+app.get('/api/marketplace-accounts', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accounts = await listMarketplaceAccounts(prisma, req.user!.organizationId);
+    return res.json({ success: true, accounts });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ACCOUNTS] Erro ao listar contas: ${message}`);
+    return res.status(500).json({
+      error: {
+        code: 'ACCOUNTS_FETCH_FAILED',
+        message: 'Não foi possível carregar as contas do servidor.'
+      }
+    });
+  }
+});
 
-  return res.json({ success: true, accounts: safeAccounts });
+app.post('/api/marketplace-accounts', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const account = await createMarketplaceAccount(prisma, req.user!.organizationId, {
+      marketplace: req.body.marketplace,
+      accountName: req.body.accountName || req.body.sellerName || req.body.name,
+      sellerId: req.body.sellerId,
+      shopId: req.body.shopId,
+      externalAccountId: req.body.externalAccountId,
+      accessToken: req.body.accessToken || req.body.apiToken || req.body.partnerKey || req.body.appKey,
+      isDemo: req.body.isDemo === true
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        userId: req.user!.userId,
+        action: 'CREATE_MARKETPLACE_ACCOUNT',
+        resourceType: 'MARKETPLACE_ACCOUNT',
+        resourceId: account.id,
+        marketplace: account.marketplace,
+        marketplaceAccountId: account.id,
+        status: 'SUCCESS'
+      }
+    });
+
+    return res.status(201).json({ success: true, account: toAccountView(account) });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ACCOUNTS] Erro ao criar conta: ${message}`);
+    return res.status(400).json({
+      error: {
+        code: 'ACCOUNT_CREATE_FAILED',
+        message
+      }
+    });
+  }
+});
+
+app.put('/api/marketplace-accounts/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const updated = await updateMarketplaceAccount(prisma, req.user!.organizationId, req.params.id, {
+      marketplace: req.body.marketplace,
+      accountName: req.body.accountName || req.body.sellerName || req.body.name,
+      sellerId: req.body.sellerId,
+      shopId: req.body.shopId,
+      externalAccountId: req.body.externalAccountId,
+      accessToken: req.body.accessToken || req.body.apiToken || req.body.partnerKey || req.body.appKey,
+      isDemo: req.body.isDemo === true
+    });
+
+    if (!updated) {
+      return res.status(404).json({
+        error: {
+          code: 'MARKETPLACE_ACCOUNT_NOT_FOUND',
+          message: 'Conta de marketplace não encontrada.'
+        }
+      });
+    }
+
+    return res.json({ success: true, account: toAccountView(updated) });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(400).json({ error: { code: 'ACCOUNT_UPDATE_FAILED', message } });
+  }
+});
+
+app.delete('/api/marketplace-accounts/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const deleted = await deleteMarketplaceAccount(prisma, req.user!.organizationId, req.params.id);
+    if (deleted === 0) {
+      return res.status(404).json({
+        error: {
+          code: 'MARKETPLACE_ACCOUNT_NOT_FOUND',
+          message: 'Conta de marketplace não encontrada.'
+        }
+      });
+    }
+    return res.json({ success: true, message: 'Conta de marketplace removida.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: { code: 'ACCOUNT_DELETE_FAILED', message } });
+  }
 });
 
 app.post('/api/marketplace-accounts/:id/import', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const accountId = req.params.id;
-    const account = dbStore.accounts.find(a => a.id === accountId);
+    const account = await findAccountByOrg(prisma, req.user!.organizationId, accountId);
 
     if (!account) {
       return res.status(404).json({
@@ -314,33 +399,34 @@ app.post('/api/marketplace-accounts/:id/import', authenticateToken, async (req: 
       });
     }
 
-    const adapter = new FakeMarketplaceAdapter(account.marketplace, account.id);
-    const mockListings = await adapter.listListings({ page: 1, limit: 10 });
-
-    account.lastImportAt = new Date().toISOString();
-    account.lastSyncAt = new Date().toISOString();
-
-    const jobId = `job-import-${Date.now()}`;
-
-    dbStore.auditLogs.push({
-      id: `audit-${Date.now()}`,
-      organizationId: req.user!.organizationId,
-      userId: req.user!.userId,
-      action: 'IMPORT_LISTINGS',
-      resourceType: 'MARKETPLACE_ACCOUNT',
-      resourceId: account.id,
-      status: 'SUCCESS',
-      createdAt: new Date().toISOString()
-    });
+    const summary = await ImportService.executeImportJob(
+      prisma,
+      {
+        id: account.id,
+        organizationId: account.organizationId,
+        marketplace: account.marketplace,
+        accountName: account.accountName
+      },
+      req.user!.email
+    );
 
     return res.json({
-      jobId,
-      status: 'PENDING',
-      message: 'Importação iniciada em modo demonstração.'
+      success: true,
+      jobId: summary.jobId,
+      status: summary.status,
+      accountId: account.id,
+      message: summary.message,
+      summary
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({ success: false, error: message });
+    console.error(`[IMPORT] Erro na importação da conta ${req.params.id}: ${message}`);
+    return res.status(500).json({
+      error: {
+        code: 'IMPORT_JOB_FAILED',
+        message: `Falha na importação: ${message}`
+      }
+    });
   }
 });
 
