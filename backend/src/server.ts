@@ -26,6 +26,7 @@ import { PreviewService, SelectionDefinition } from './services/preview.service.
 import { TransformationRule } from './services/transformation.service.js';
 import { SkuQueueService } from './jobs/sku-queue.service.js';
 import { RollbackService } from './services/rollback.service.js';
+import { listMarketplaceListings } from './services/listings.service.js';
 
 dotenv.config();
 
@@ -458,6 +459,27 @@ app.post('/api/marketplace-accounts/:id/import', authenticateToken, async (req: 
       error: {
         code: 'IMPORT_JOB_FAILED',
         message: toFriendlyDbErrorMessage(err, 'Falha ao importar os anúncios da conta.')
+      }
+    });
+  }
+});
+
+app.get('/api/marketplace-listings', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await listMarketplaceListings(prisma, req.user!.organizationId);
+    return res.json({
+      success: true,
+      listings: result.listings,
+      totalListings: result.totalListings,
+      totalVariations: result.totalVariations
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[LISTINGS] Erro ao listar anúncios: ${message}`);
+    return res.status(500).json({
+      error: {
+        code: 'LISTINGS_FETCH_FAILED',
+        message: toFriendlyDbErrorMessage(err, 'Não foi possível carregar os anúncios do servidor.')
       }
     });
   }

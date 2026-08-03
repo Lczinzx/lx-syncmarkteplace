@@ -131,15 +131,22 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 - Importação idempotente: 1ª importação cria, 2ª atualiza (upsert por `marketplaceAccountId_externalListingId` / `marketplaceListingId_externalVariationId`), sem duplicatas; `ImportService.executeImportJob` aceita adapter opcional (produção inalterada).
 - **Isolamento**: o dataset só é usado pelo adapter DEMO da conta `acc-shopee-demo` — nunca se mistura com contas reais; `ENABLE_DEMO_SEED=true` continua sendo a proteção de ativação.
 
+**6c. Tela "Anúncios & SKUs" conectada ao PostgreSQL (`GET /api/marketplace-listings`):**
+- Nova rota autenticada `GET /api/marketplace-listings` (Bearer JWT) no server.ts → `listMarketplaceListings()` (novo `listings.service.ts`): lê `MarketplaceListing` + `MarketplaceVariation` + `MarketplaceAccount` do Prisma, **filtrado por `organizationId`** do usuário logado (nunca expõe tokens/segredos da conta — só marketplace, nome e `isDemo`).
+- Resposta: `{ success, listings, totalListings, totalVariations }` — ordenada por `externalListingId` (FDM-0001...), cada anúncio com `variations` (SKU, preço, estoque, status).
+- Frontend: `ListingsAPI.getListings()` agora chama `/api/marketplace-listings` (antes apontava para `/api/listings` inexistente → 404); ao **abrir a aba "Anúncios & SKUs"** (`switchTab('skus')`) o app dispara `loadMarketplaceListings()` e renderiza tabela com os anúncios importados + variações (SKU · preço · estoque colorido para zero/baixo), contador "X anúncio(s) · Y variação(ões)", badge de status e botão "Atualizar" (`btn-refresh-listings`).
+- Esperado no ambiente público: `GET /api/marketplace-listings` com **HTTP 200** exibindo **50 anúncios / 129 variações** (conjunto DEMO importado).
+- Fallback de erro: mensagem amigável na tabela + console.error; contagens zeradas sem quebrar a tela.
+
 **7. Tratamento 404 no frontend:** remoção do card da conta, recarga da lista via `GET /api/marketplace-accounts`, aviso "Esta conta não existe mais. A lista de contas foi atualizada." e **nenhum reenvio automático** do POST.
 
 **8. Publicador Multi-Post:** usa somente as contas vindas da API; IDs selecionados que não existem mais no backend bloqueiam a publicação com aviso e recarregam a lista.
 
 **9. Arquivos alterados:**
-- Frontend: `app.js`, `services/account-source.js` (novo), `services/storage.js`, `services/api/accounts-api.js`, `services/sync-engine.js`, `services/batch-publisher.js`, `tests/account-source.test.js` (novo), `package.json`.
-- Backend: `src/server.ts`, `src/services/accounts.service.ts` (novo), `src/services/demo-seed.service.ts` (novo), `src/services/import.service.ts`, `src/utils/prisma-errors.ts` (novo), `prisma/seed.ts`, `package.json`, `.env.example`, `prisma/migrations/**` (novo), `src/marketplaces/demo-data.ts` (novo), `src/marketplaces/fake-marketplace.adapter.ts`, `src/tests/demo-data.test.ts` (novo).
+- Frontend: `app.js`, `services/account-source.js` (novo), `services/storage.js`, `services/api/accounts-api.js`, `services/sync-engine.js`, `services/batch-publisher.js`, `tests/account-source.test.js` (novo), `package.json`, `services/api/listings-api.js`, `index.html`.
+- Backend: `src/server.ts`, `src/services/accounts.service.ts` (novo), `src/services/demo-seed.service.ts` (novo), `src/services/import.service.ts`, `src/utils/prisma-errors.ts` (novo), `prisma/seed.ts`, `package.json`, `.env.example`, `prisma/migrations/**` (novo), `src/marketplaces/demo-data.ts` (novo), `src/marketplaces/fake-marketplace.adapter.ts`, `src/tests/demo-data.test.ts` (novo), `src/services/listings.service.ts` (novo), `src/tests/listings.test.ts` (novo).
 
-**10. Testes executados:** Backend **53** (32 + novo grupo DEMO **21**) + Fase 3 (OK) • Frontend 10/10 (OK) • `prisma validate`, `prisma generate`, `npm run build` (backend + frontend) OK.
+**10. Testes executados:** Backend **61** (32 + grupo DEMO 21 + novo grupo Listagem **8**) + Fase 3 (OK) • Frontend 10/10 (OK) • `prisma validate`, `prisma generate`, `npm run build` (backend + frontend) OK.
 
 **11. Migrations PostgreSQL (Prisma Migrate):**
 - A pasta `backend/prisma/migrations` **não existia** antes (por isso o erro P2021 em produção).

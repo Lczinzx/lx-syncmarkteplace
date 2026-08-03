@@ -8,6 +8,7 @@ import { BatchPublisher } from './services/batch-publisher.js';
 import { apiFetch } from './services/api/api-client.js';
 import { AuthAPI } from './services/api/auth-api.js';
 import { AccountsAPI } from './services/api/accounts-api.js';
+import { ListingsAPI } from './services/api/listings-api.js';
 import { extractAccountsFromResponse, normalizeAccountsFromApi, isAccountNotFoundError } from './services/account-source.js';
 
 export function showNotification(type = 'info', title = '', message = '', actionLabel = null, onAction = null) {
@@ -64,6 +65,7 @@ let currentLogs = [];
 let currentSettings = {};
 let currentAccounts = [];
 let currentUser = null;
+let currentListings = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initApp();
@@ -193,6 +195,10 @@ function switchTab(tabId) {
     document.getElementById('page-title').textContent = titles[tabId].title;
     document.getElementById('page-subtitle').textContent = titles[tabId].sub;
   }
+
+  if (tabId === 'skus') {
+    loadMarketplaceListings();
+  }
 }
 
 /* ==========================================
@@ -300,6 +306,86 @@ function renderOverviewAccounts() {
 /* ==========================================
    TAB 2: SKUs MASTER & MAPEAMENTO
    ========================================== */
+
+async function loadMarketplaceListings() {
+  const tbody = document.getElementById('marketplace-listings-body');
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color: var(--text-muted);">Carregando anúncios do servidor...</td></tr>`;
+  }
+
+  try {
+    const res = await ListingsAPI.getListings();
+    currentListings = (res && res.listings) || [];
+    renderMarketplaceListings();
+  } catch (err) {
+    currentListings = [];
+    console.error('[LISTINGS] Falha ao carregar anúncios do backend:', err.message);
+    const tbodyEl = document.getElementById('marketplace-listings-body');
+    if (tbodyEl) {
+      tbodyEl.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color:#EF4444;">Não foi possível carregar os anúncios do servidor. (${escapeHtml(err.message)})</td></tr>`;
+    }
+  }
+}
+
+function renderMarketplaceListings() {
+  const tbody = document.getElementById('marketplace-listings-body');
+  if (!tbody) return;
+
+  const totalListings = currentListings.length;
+  const totalVariations = currentListings.reduce((acc, l) => acc + (l.variations ? l.variations.length : 0), 0);
+
+  const counterEl = document.getElementById('listings-counter');
+  if (counterEl) {
+    counterEl.textContent = `${totalListings} anúncio(s) · ${totalVariations} variação(ões) importadas`;
+  }
+
+  if (totalListings === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px;">Nenhum anúncio importado ainda. Use "Importar Anúncios" em Canais & APIs.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = currentListings.map(listing => {
+    const account = listing.account || {};
+    const variations = listing.variations || [];
+    const variationsHtml = variations.length === 0
+      ? '<span style="color:#64748B;">Sem variações</span>'
+      : variations.map(v => `
+        <div style="display:flex; justify-content:space-between; gap:10px; padding:4px 0; border-bottom:1px dashed rgba(148,163,184,0.15);">
+          <div style="min-width:0;">
+            <div style="font-size:12px; font-weight:600; color:#E2E8F0;">${escapeHtml(v.variationName)}</div>
+            <div style="font-size:11px; color:#94A3B8; font-family:monospace;">${escapeHtml(v.currentSku || '—')}</div>
+          </div>
+          <div style="text-align:right; flex-shrink:0;">
+            <div style="font-size:12px; color:#A7F3D0;">R$ ${Number(v.price || 0).toFixed(2)}</div>
+            <div style="font-size:11px; color:${Number(v.stock || 0) === 0 ? '#F87171' : Number(v.stock || 0) <= 2 ? '#FBBF24' : '#94A3B8'};">${v.stock} un</div>
+          </div>
+        </div>
+      `).join('');
+
+    return `
+      <tr>
+        <td style="min-width:220px;">
+          <div style="font-weight:700; color:#fff;">${escapeHtml(listing.title)}</div>
+          <div style="font-size:11px; color:#94A3B8;">${escapeHtml(listing.externalListingId)}</div>
+        </td>
+        <td>
+          <span class="pill-mini ${account.marketplace || 'meli'}">${escapeHtml((account.marketplace || 'mp').toUpperCase())}</span>
+          <div style="font-size:11px; color:#94A3B8; margin-top:4px;">${escapeHtml(account.accountName || '—')}</div>
+        </td>
+        <td>
+          <span class="status-badge ${listing.status === 'PAUSED' ? 'warning' : 'synced'}">${escapeHtml(listing.status || 'ACTIVE')}</span>
+        </td>
+        <td style="min-width:280px;">${variationsHtml}</td>
+        <td>${variations.reduce((acc, v) => acc + Number(v.stock || 0), 0)} un</td>
+        <td>${variations.length}</td>
+        <td>
+          ${listing.listingUrl ? `<a href="${escapeHtml(listing.listingUrl)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Abrir</a>` : '<span style="color:#64748B;">—</span>'}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
 function renderSkusTable(skusList) {
   const tbody = document.getElementById('skus-table-body');
   if (skusList.length === 0) {
@@ -586,6 +672,9 @@ function setupEventListeners() {
 
   const btnAddSku = document.getElementById('btn-add-sku');
   if (btnAddSku) btnAddSku.addEventListener('click', () => openSkuModal());
+
+  const btnRefreshListings = document.getElementById('btn-refresh-listings');
+  if (btnRefreshListings) btnRefreshListings.addEventListener('click', () => loadMarketplaceListings());
 
   const btnAddAcc = document.getElementById('btn-add-account');
   if (btnAddAcc) btnAddAcc.addEventListener('click', () => openAccountModal());

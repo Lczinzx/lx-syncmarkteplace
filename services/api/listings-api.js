@@ -1,10 +1,12 @@
 import { apiFetch } from './api-client.js';
 
 export const ListingsAPI = {
-  async getListings(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    const url = query ? `/api/listings?${query}` : '/api/listings';
-    return await apiFetch(url);
+  /**
+   * Lista anúncios persistidos no PostgreSQL (GET /api/marketplace-listings).
+   * Retorna { listings, totalListings, totalVariations } do backend.
+   */
+  async getListings() {
+    return await apiFetch('/api/marketplace-listings');
   },
 
   async searchBySkus(skus, matchMode = 'NORMALIZED') {
