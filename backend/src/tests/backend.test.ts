@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import { isAdminEmail, getAdminEmails, verifyGoogleToken, generateSessionJWT, verifySessionJWT } from '../auth/google-auth.service.js';
 import { encryptSecret, decryptSecret, maskSensitiveValue } from '../utils/crypto.js';
+import { toFriendlyDbErrorMessage } from '../utils/prisma-errors.js';
 import { FakeMarketplaceAdapter } from '../marketplaces/fake-marketplace.adapter.js';
 
 console.log('🧪 Executando Testes Automatizados da API do Backend LX Sync...\n');
@@ -267,6 +268,31 @@ async function runTests() {
     const body = { credential: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.validpayload.signature' };
     const hasCredential = !!body.credential && typeof body.credential === 'string';
     assert.strictEqual(hasCredential, true);
+  });
+
+  // ============================================================
+  // GRUPO 7: Erros Amigáveis do Prisma (P2021 - banco não inicializado)
+  // ============================================================
+  console.log('\n📋 7. Erros Amigáveis do Prisma (P2021)');
+
+  await test('P2021 deve ser convertido em mensagem amigável de migrations', () => {
+    const err = { code: 'P2021', message: 'The table public.marketplace_accounts does not exist in the current database.' };
+    const friendly = toFriendlyDbErrorMessage(err, 'fallback');
+    assert.strictEqual(friendly, 'O banco de dados ainda não foi inicializado. Aplique as migrations antes de continuar.');
+    assert.ok(!friendly.includes('marketplace_accounts'));
+  });
+
+  await test('P2024/P2010/P1001 também são tratados como banco não inicializado', () => {
+    assert.strictEqual(toFriendlyDbErrorMessage({ code: 'P2024' }, 'x'), 'O banco de dados ainda não foi inicializado. Aplique as migrations antes de continuar.');
+    assert.strictEqual(toFriendlyDbErrorMessage({ code: 'P2010' }, 'x'), 'O banco de dados ainda não foi inicializado. Aplique as migrations antes de continuar.');
+    assert.strictEqual(toFriendlyDbErrorMessage({ code: 'P1001' }, 'x'), 'O banco de dados ainda não foi inicializado. Aplique as migrations antes de continuar.');
+  });
+
+  await test('Outros erros mantêm a mensagem de fallback sem vazar detalhes do banco', () => {
+    const err = { code: 'P2002', message: 'Unique constraint failed' };
+    assert.strictEqual(toFriendlyDbErrorMessage(err, 'Não foi possível carregar as contas.'), 'Não foi possível carregar as contas.');
+    assert.strictEqual(toFriendlyDbErrorMessage(null, 'fallback'), 'fallback');
+    assert.strictEqual(toFriendlyDbErrorMessage('string-error', 'fallback'), 'fallback');
   });
 
   // ============================================================

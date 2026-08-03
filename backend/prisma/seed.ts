@@ -14,7 +14,12 @@ function encryptSecret(plainText: string): string {
 }
 
 async function main() {
-  console.log('🌱 Semeando banco de dados de desenvolvimento (LX Sync)...');
+  if (process.env.ENABLE_DEMO_SEED !== 'true') {
+    console.log('⏭️  Seed DEMO ignorado: ENABLE_DEMO_SEED não é "true".');
+    return;
+  }
+
+  console.log('🌱 Semeando dados DEMO (LX Sync)...');
 
   // 1. Organização
   const org = await prisma.organization.upsert({

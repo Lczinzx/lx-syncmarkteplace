@@ -128,9 +128,17 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 **9. Arquivos alterados:**
 - Frontend: `app.js`, `services/account-source.js` (novo), `services/storage.js`, `services/api/accounts-api.js`, `services/sync-engine.js`, `services/batch-publisher.js`, `tests/account-source.test.js` (novo), `package.json`.
-- Backend: `src/server.ts`, `src/services/accounts.service.ts` (novo), `src/services/demo-seed.service.ts` (novo), `src/services/import.service.ts`, `package.json`, `.env.example`.
+- Backend: `src/server.ts`, `src/services/accounts.service.ts` (novo), `src/services/demo-seed.service.ts` (novo), `src/services/import.service.ts`, `src/utils/prisma-errors.ts` (novo), `prisma/seed.ts`, `package.json`, `.env.example`, `prisma/migrations/**` (novo).
 
-**10. Testes executados:** Backend 22 + Fase 3 (OK) • Frontend 10/10 (OK) • Builds `npm run build` (backend + frontend) OK.
+**10. Testes executados:** Backend **25** testes (novo grupo 7: erros amigáveis do Prisma P2021) + Fase 3 (OK) • Frontend 10/10 (OK) • `prisma validate`, `prisma generate`, `npm run build` (backend + frontend) OK.
+
+**11. Migrations PostgreSQL (Prisma Migrate):**
+- A pasta `backend/prisma/migrations` **não existia** antes (por isso o erro P2021 em produção).
+- Migration inicial criada a partir do schema atual **sem tocar no banco de produção**: `backend/prisma/migrations/20260803000000_init/migration.sql` (gerada offline via `prisma migrate diff --from-empty --to-schema-datamodel`), acompanhada de `migration_lock.toml` (provider `postgresql`).
+- Tabelas criadas (13): `organizations`, `users`, `marketplace_accounts`, `marketplace_listings`, `marketplace_variations`, `master_products`, `product_mappings`, `import_jobs`, `import_job_errors`, `sku_change_jobs`, `sku_change_job_items`, `inventory_items`, `audit_logs` + enums `Role`, `AccountStatus`, `SkuJobStatus`, `ImportJobStatus`, índices e chaves estrangeiras.
+- Aplicação em produção: `npx prisma migrate deploy` no Build Command do Render (`npm install --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build`).
+- **Seed DEMO**: `npm run seed:demo` (`prisma db seed`) e/ou boot do servidor (`ensureDemoData`) — ambos executam **somente com `ENABLE_DEMO_SEED=true`**, via upsert idempotente, criando a conta **`acc-shopee-demo`** para a organização **`org-festum-decor`**.
+- **Tratamento P2021**: erros de tabela inexistente (P2021/P2024/P2010/P1001) retornam ao cliente a mensagem amigável *"O banco de dados ainda não foi inicializado. Aplique as migrations antes de continuar."* — sem vazar detalhes internos do banco (detalhes reais ficam nos logs do servidor).
 
 ---
 
@@ -138,6 +146,15 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 - **Frontend Netlify (Web App SaaS 24/7)**: [lxsync.netlify.app](https://lxsync.netlify.app/) — env var **`VITE_GOOGLE_CLIENT_ID`** (mesmo Client ID do backend) e `VITE_API_URL=https://lx-sync-api.onrender.com`.
 - **Backend API Node.js / Express (Render)**: [lx-sync-api.onrender.com](https://lx-sync-api.onrender.com/) — REST API com CORS restrito por `FRONTEND_URL`, Prisma ORM e PostgreSQL.
-  - Env vars obrigatórias: `GOOGLE_CLIENT_ID`, `JWT_SECRET`, `ENCRYPTION_KEY`, `ADMIN_EMAILS`, `FRONTEND_URL`.
+  - Env vars obrigatórias: `GOOGLE_CLIENT_ID`, `JWT_SECRET`, `ENCRYPTION_KEY`, `ADMIN_EMAILS`, `FRONTEND_URL` (+ `DATABASE_URL`).
+  - Env opcional: `ENABLE_DEMO_SEED=true` (cria/atualiza a conta DEMO `acc-shopee-demo` da org `org-festum-decor` no boot do servidor, via upsert idempotente).
+  - **Build Command (plano Free):**
+    ```
+    npm install --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
+    ```
+    - `npm install --include=dev` instala também as devDependencies (o `prisma` CLI é devDependency e o `postinstall` já roda `prisma generate`).
+    - `npx prisma migrate deploy` aplica as migrations versionadas de `backend/prisma/migrations/**` (histórico oficial — **não usa `prisma db push`**).
+    - O seed DEMO roda automaticamente no boot do servidor (`ensureDemoData`) após as migrations, somente com `ENABLE_DEMO_SEED=true`; também disponível manualmente via `npm run seed:demo` (`prisma db seed`, idempotente via upsert).
+  - Start Command: `npm start`.
 - **Worker Assíncrono (`worker.ts`)**: Processador isolado da fila de SKUs.
 - **Repositório GitHub**: [github.com/Lczinzx/lx-syncmarkteplace](https://github.com/Lczinzx/lx-syncmarkteplace)

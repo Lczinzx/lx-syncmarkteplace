@@ -14,8 +14,13 @@
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
+    "prisma:validate": "prisma validate",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "seed:demo": "prisma db seed",
     "test": "tsc && node --test dist/tests/**/*.test.js"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",

@@ -6,6 +6,7 @@ import { verifyGoogleToken, generateSessionJWT, verifySessionJWT, isAdminEmail, 
 import { FakeMarketplaceAdapter } from './marketplaces/fake-marketplace.adapter.js';
 import { ImportService } from './services/import.service.js';
 import { ensureDemoData } from './services/demo-seed.service.js';
+import { toFriendlyDbErrorMessage } from './utils/prisma-errors.js';
 import {
   listMarketplaceAccounts,
   findAccountByOrg,
@@ -295,7 +296,7 @@ app.get('/api/marketplace-accounts', authenticateToken, async (req: Authenticate
     return res.status(500).json({
       error: {
         code: 'ACCOUNTS_FETCH_FAILED',
-        message: 'Não foi possível carregar as contas do servidor.'
+        message: toFriendlyDbErrorMessage(err, 'Não foi possível carregar as contas do servidor.')
       }
     });
   }
@@ -333,7 +334,7 @@ app.post('/api/marketplace-accounts', authenticateToken, async (req: Authenticat
     return res.status(400).json({
       error: {
         code: 'ACCOUNT_CREATE_FAILED',
-        message
+        message: toFriendlyDbErrorMessage(err, 'Não foi possível criar a conta de marketplace.')
       }
     });
   }
@@ -363,7 +364,13 @@ app.put('/api/marketplace-accounts/:id', authenticateToken, async (req: Authenti
     return res.json({ success: true, account: toAccountView(updated) });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return res.status(400).json({ error: { code: 'ACCOUNT_UPDATE_FAILED', message } });
+    console.error(`[ACCOUNTS] Erro ao atualizar conta: ${message}`);
+    return res.status(400).json({
+      error: {
+        code: 'ACCOUNT_UPDATE_FAILED',
+        message: toFriendlyDbErrorMessage(err, 'Não foi possível atualizar a conta de marketplace.')
+      }
+    });
   }
 });
 
@@ -381,7 +388,13 @@ app.delete('/api/marketplace-accounts/:id', authenticateToken, async (req: Authe
     return res.json({ success: true, message: 'Conta de marketplace removida.' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({ error: { code: 'ACCOUNT_DELETE_FAILED', message } });
+    console.error(`[ACCOUNTS] Erro ao excluir conta: ${message}`);
+    return res.status(500).json({
+      error: {
+        code: 'ACCOUNT_DELETE_FAILED',
+        message: toFriendlyDbErrorMessage(err, 'Não foi possível remover a conta de marketplace.')
+      }
+    });
   }
 });
 
@@ -424,7 +437,7 @@ app.post('/api/marketplace-accounts/:id/import', authenticateToken, async (req: 
     return res.status(500).json({
       error: {
         code: 'IMPORT_JOB_FAILED',
-        message: `Falha na importação: ${message}`
+        message: toFriendlyDbErrorMessage(err, 'Falha ao importar os anúncios da conta.')
       }
     });
   }
