@@ -448,16 +448,28 @@ function setupEventListeners() {
 }
 
 async function handleGoogleLoginSimulated() {
-  const emailInput = document.getElementById('login-google-email-input');
   const statusMsg = document.getElementById('auth-status-msg');
-  const enteredEmail = (emailInput ? emailInput.value : '').trim();
+  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Abrindo autenticação da Conta do Google...</span>`;
 
-  if (!enteredEmail) {
-    statusMsg.innerHTML = `<span style="color:#F59E0B;">⚠️ Digite o e-mail da sua Conta do Google para entrar.</span>`;
+  // Simula janela popup de login do Google (Google OAuth SSO Popup)
+  const userPrompt = prompt(
+    "🌐 GOOGLE ACCOUNTS - ENTRAR COM A CONTA DO GOOGLE:\n\nPor favor, informe o seu e-mail do Google para autenticação:",
+    "lucasoliveiradossantos008@gmail.com"
+  );
+
+  if (userPrompt === null) {
+    statusMsg.innerHTML = `<span style="color:var(--text-muted);">Autenticação cancelada pelo usuário.</span>`;
     return;
   }
 
-  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Autenticando com a Conta do Google...</span>`;
+  const enteredEmail = userPrompt.trim();
+
+  if (!enteredEmail) {
+    statusMsg.innerHTML = `<span style="color:#F59E0B;">⚠️ Nenhum e-mail informado. Tente novamente.</span>`;
+    return;
+  }
+
+  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Verificando credenciais no Google SSO...</span>`;
 
   setTimeout(async () => {
     if (StorageService.isAdmin(enteredEmail)) {
@@ -485,10 +497,10 @@ async function handleGoogleLoginSimulated() {
       }, 500);
 
     } else {
-      statusMsg.innerHTML = `<div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); padding: 12px; border-radius: 8px; color: #F87171; font-size: 12px; margin-top: 8px; text-align: center;">
+      statusMsg.innerHTML = `<div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); padding: 14px; border-radius: 10px; color: #F87171; font-size: 12px; margin-top: 10px; text-align: center;">
         🚨 <strong>ACESSO NEGADO</strong><br>
         O e-mail <code>${escapeHtml(enteredEmail)}</code> não possui permissões de Administrador.<br>
-        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Apenas contas administradoras possuem autorização de entrada.</span>
+        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Apenas contas administradoras possuem autorização de entrada na plataforma.</span>
       </div>`;
     }
   }, 400);
