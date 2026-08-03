@@ -18,6 +18,17 @@ import { RollbackService } from './services/rollback.service.js';
 
 dotenv.config();
 
+function maskClientId(clientId: string | undefined): string {
+  if (!clientId) return 'NÃO CONFIGURADO';
+  if (clientId.length <= 12) return clientId;
+  return `...${clientId.slice(-25)}`;
+}
+
+const bootClientId = process.env.GOOGLE_CLIENT_ID;
+console.log(`[AUTH] GOOGLE_CLIENT_ID em uso no servidor: ${maskClientId(bootClientId)}`);
+console.log(`[AUTH] JWT_SECRET: ${process.env.JWT_SECRET ? 'CONFIGURADO' : 'NÃO CONFIGURADO'}`);
+console.log(`[AUTH] ADMIN_EMAILS: ${(process.env.ADMIN_EMAILS || '').split(',').length} e-mail(s) autorizado(s)`);
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
