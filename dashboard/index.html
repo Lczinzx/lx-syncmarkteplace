@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LX Sync Marketplace - Painel de Gestão Multicanal</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo-box">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h2>LX Sync</h2>
+          <span>Marketplace Hub</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <a href="#overview" class="nav-link active" data-tab="overview">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          Visão Geral
+        </a>
+
+        <a href="#skus" class="nav-link" data-tab="skus">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          </svg>
+          Estoque Master & SKUs
+          <span id="badge-sku-count" class="nav-badge">0</span>
+        </a>
+
+        <a href="#channels" class="nav-link" data-tab="channels">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="9" cy="21" r="1"></circle>
+            <circle cx="20" cy="21" r="1"></circle>
+            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+          </svg>
+          Canais & APIs
+        </a>
+
+        <a href="#multipost" class="nav-link" data-tab="multipost">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+          </svg>
+          Publicador Multi-Post
+        </a>
+
+        <a href="#logs" class="nav-link" data-tab="logs">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          Logs de Auditoria
+        </a>
+
+        <a href="#settings" class="nav-link" data-tab="settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          Configurações
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sync-health-box">
+          <div class="pulse-dot"></div>
+          <div>
+            <span class="health-title">Sincronização Ativa</span>
+            <span class="health-sub" id="last-sync-time">Há 2 min</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Top Bar Header -->
+      <header class="top-header">
+        <div class="page-title-group">
+          <h1 id="page-title">Visão Geral</h1>
+          <p id="page-subtitle">Acompanhe a sincronização de estoque entre Mercado Livre, Shopee e TikTok Shop em tempo real.</p>
+        </div>
+
+        <div class="top-actions">
+          <button id="btn-simulate-sale" class="btn btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="9" cy="21" r="1"></circle>
+              <circle cx="20" cy="21" r="1"></circle>
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+            </svg>
+            Simular Venda
+          </button>
+          
+          <button id="btn-sync-all-header" class="btn btn-primary glow-btn">
+            <svg class="spin-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            Sincronizar Todos SKUs
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB 1: OVERVIEW -->
+      <section id="tab-overview" class="tab-content active">
+        <!-- KPI Cards Grid -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">SKUs Cadastrados</span>
+              <div class="kpi-icon indigo">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+              </div>
+            </div>
+            <div class="kpi-value" id="kpi-total-skus">0</div>
+            <div class="kpi-sub">Total de produtos no estoque master</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Unidades em Estoque</span>
+              <div class="kpi-icon cyan">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg>
+              </div>
+            </div>
+            <div class="kpi-value" id="kpi-total-stock">0</div>
+            <div class="kpi-sub">Sincronizadas em 3 canais</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Estoque Crítico / Baixo</span>
+              <div class="kpi-icon amber">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              </div>
+            </div>
+            <div class="kpi-value" id="kpi-critical-skus">0</div>
+            <div class="kpi-sub" id="kpi-critical-sub">Reserva de segurança ativa</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Status da Sincronização</span>
+              <div class="kpi-icon green">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+            </div>
+            <div class="kpi-value green-text" id="kpi-sync-status">100% OK</div>
+            <div class="kpi-sub">Mercado Livre, Shopee & TikTok</div>
+          </div>
+        </div>
+
+        <!-- Channels Grid -->
+        <h3 class="section-heading">Canais Conectados</h3>
+        <div class="channels-grid">
+          <div class="channel-card meli-card">
+            <div class="channel-header">
+              <div class="channel-brand">
+                <div class="channel-icon meli-bg">ML</div>
+                <div>
+                  <h4>Mercado Livre</h4>
+                  <span class="seller-name" id="meli-seller-name">Conectado</span>
+                </div>
+              </div>
+              <span class="status-chip connected">Ativo</span>
+            </div>
+            <div class="channel-metrics">
+              <div class="metric">
+                <span class="m-label">SKUs Mapeados</span>
+                <span class="m-val" id="meli-mapped-count">4/4</span>
+              </div>
+              <div class="metric">
+                <span class="m-label">Último Webhook</span>
+                <span class="m-val">OK (Tempo Real)</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="channel-card shopee-card">
+            <div class="channel-header">
+              <div class="channel-brand">
+                <div class="channel-icon shopee-bg">SHP</div>
+                <div>
+                  <h4>Shopee</h4>
+                  <span class="seller-name" id="shopee-seller-name">Conectado</span>
+                </div>
+              </div>
+              <span class="status-chip connected">Ativo</span>
+            </div>
+            <div class="channel-metrics">
+              <div class="metric">
+                <span class="m-label">SKUs Mapeados</span>
+                <span class="m-val" id="shopee-mapped-count">4/4</span>
+              </div>
+              <div class="metric">
+                <span class="m-label">Latência API</span>
+                <span class="m-val">~180ms</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="channel-card tiktok-card">
+            <div class="channel-header">
+              <div class="channel-brand">
+                <div class="channel-icon tiktok-bg">TT</div>
+                <div>
+                  <h4>TikTok Shop</h4>
+                  <span class="seller-name" id="tiktok-seller-name">Conectado</span>
+                </div>
+              </div>
+              <span class="status-chip connected">Ativo</span>
+            </div>
+            <div class="channel-metrics">
+              <div class="metric">
+                <span class="m-label">SKUs Mapeados</span>
+                <span class="m-val" id="tiktok-mapped-count">4/4</span>
+              </div>
+              <div class="metric">
+                <span class="m-label">Automação Trend</span>
+                <span class="m-val">Ativa</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Logs Table Preview -->
+        <div class="card shadow-card">
+          <div class="card-header">
+            <h3>Atividade Recente de Sincronização</h3>
+            <a href="#logs" class="link-btn text-cyan tab-trigger" data-target="logs">Ver todos os logs &rarr;</a>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Horário</th>
+                  <th>SKU Master</th>
+                  <th>Marketplace</th>
+                  <th>Evento</th>
+                  <th>De / Para</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="overview-recent-logs">
+                <!-- Injetado via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: SKUs MASTER & MAPEAMENTO -->
+      <section id="tab-skus" class="tab-content">
+        <div class="card shadow-card">
+          <div class="table-toolbar">
+            <div class="search-box">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="search-sku-input" placeholder="Buscar por SKU Master, Nome ou Categoria...">
+            </div>
+            <button id="btn-add-sku" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Novo SKU Master
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>SKU Master</th>
+                  <th>Produto</th>
+                  <th>Estoque Master</th>
+                  <th>Mapeamento De-Para</th>
+                  <th>Disponível Sync</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="skus-table-body">
+                <!-- Injetado via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: CANAIS & CONEXÕES (GESTAO DE MULTIPLAS CONTAS) -->
+      <section id="tab-channels" class="tab-content">
+        <div class="card shadow-card" style="margin-bottom: 20px;">
+          <div class="card-header">
+            <div>
+              <h3>🌐 Conexões & Contas Multicanal</h3>
+              <p class="card-subtitle" style="margin-bottom: 0;">Gerencie múltiplas contas ativas por marketplace para sincronização de estoque e postagem simultânea.</p>
+            </div>
+            <button id="btn-add-account" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              + Conectar Nova Conta
+            </button>
+          </div>
+        </div>
+
+        <div id="accounts-cards-grid" class="channels-setting-grid">
+          <!-- Injetado via JS dinamicamente -->
+        </div>
+      </section>
+
+      <!-- TAB 5: PUBLICADOR MULTICANAL (MULTI-POST) -->
+      <section id="tab-multipost" class="tab-content">
+        <div class="multipost-container grid-2" style="grid-template-columns: 1.2fr 1fr; gap: 24px;">
+          <!-- Form Card -->
+          <div class="card shadow-card">
+            <div class="card-header" style="margin-bottom: 20px;">
+              <div>
+                <h3>📦 Criar Anúncio Multicanal</h3>
+                <p class="card-subtitle" style="margin-bottom: 0;">Preencha os dados do produto para postagem simultânea em lote.</p>
+              </div>
+            </div>
+            <form id="form-multipost">
+              <div class="form-group">
+                <label>Título do Anúncio *</label>
+                <input type="text" id="mp-title" class="input-text" placeholder="Ex: Fone Bluetooth Pro Noise Cancelling" required>
+              </div>
+
+              <div class="form-row grid-2">
+                <div class="form-group">
+                  <label>SKU Master *</label>
+                  <input type="text" id="mp-sku" class="input-text" placeholder="Ex: FONE-BT-PRO-01" required>
+                </div>
+                <div class="form-group">
+                  <label>Categoria</label>
+                  <select id="mp-category" class="select-input">
+                    <option value="Eletrônicos">Eletrônicos</option>
+                    <option value="Moda & Vestuário">Moda & Vestuário</option>
+                    <option value="Casa & Decoração">Casa & Decoração</option>
+                    <option value="Beleza & Saúde">Beleza & Saúde</option>
+                    <option value="Acessórios">Acessórios</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row grid-2">
+                <div class="form-group">
+                  <label>Preço de Venda (R$) *</label>
+                  <input type="number" step="0.01" id="mp-price" class="input-text" placeholder="199.90" required>
+                </div>
+                <div class="form-group">
+                  <label>Estoque Efetivo Inicial *</label>
+                  <input type="number" id="mp-stock" class="input-text" placeholder="50" required>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>URL da Imagem Principal</label>
+                <input type="url" id="mp-image" class="input-text" placeholder="https://exemplo.com/foto-produto.jpg">
+              </div>
+
+              <div class="form-group">
+                <label>Descrição Completa do Anúncio</label>
+                <textarea id="mp-description" class="input-text" rows="4" placeholder="Escreva os detalhes, ficha técnica e diferenciais do produto..."></textarea>
+              </div>
+            </form>
+          </div>
+
+          <!-- Account Selection Card -->
+          <div class="card shadow-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div class="card-header" style="margin-bottom: 14px;">
+                <div>
+                  <h3>🎯 Seleção de Contas de Destino</h3>
+                  <p class="card-subtitle" style="margin-bottom: 0;">Selecione em quais contas este anúncio será publicado simultaneamente.</p>
+                </div>
+              </div>
+
+              <div class="account-select-toolbar" style="display: flex; justify-content: space-between; margin-bottom: 16px;">
+                <button type="button" id="btn-select-all-accounts" class="btn btn-sm btn-secondary">Selecionar Todas</button>
+                <button type="button" id="btn-unselect-all-accounts" class="btn btn-sm btn-secondary">Desmarcar Todas</button>
+              </div>
+
+              <div id="multipost-accounts-list" class="accounts-checklist" style="display: flex; flex-direction: column; gap: 10px; max-height: 340px; overflow-y: auto; padding-right: 4px;">
+                <!-- Injetado dinamicamente via JS -->
+              </div>
+            </div>
+
+            <div style="padding-top: 20px; border-top: 1px solid var(--border-card); margin-top: 20px;">
+              <button type="button" id="btn-publish-multipost" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 14px; font-size: 14px;">
+                🚀 Publicar Anúncio em Todas as Contas Selecionadas
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: LOGS DE AUDITORIA -->
+      <section id="tab-logs" class="tab-content">
+        <div class="card shadow-card">
+          <div class="table-toolbar">
+            <div class="filter-group">
+              <select id="log-filter-status" class="select-input">
+                <option value="all">Todos os Status</option>
+                <option value="success">Sucesso</option>
+                <option value="warning">Aviso / Trava</option>
+                <option value="error">Erro</option>
+              </select>
+
+              <select id="log-filter-channel" class="select-input">
+                <option value="all">Todos os Canais</option>
+                <option value="Mercado Livre">Mercado Livre</option>
+                <option value="Shopee">Shopee</option>
+                <option value="TikTok Shop">TikTok Shop</option>
+              </select>
+            </div>
+
+            <div class="toolbar-right">
+              <button id="btn-export-logs" class="btn btn-secondary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Exportar CSV
+              </button>
+              <button id="btn-clear-logs" class="btn btn-danger-outline">Limpar Logs</button>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Data/Hora</th>
+                  <th>SKU Master</th>
+                  <th>Canal</th>
+                  <th>Evento</th>
+                  <th>De &rarr; Para</th>
+                  <th>Mensagem Detalhada</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="full-logs-table-body">
+                <!-- Injetado via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: CONFIGURAÇÕES DE SEGURANÇA -->
+      <section id="tab-settings" class="tab-content">
+        <div class="card shadow-card max-width-card">
+          <h3>Regras de Sincronização & Prevenção de Overselling</h3>
+          <p class="card-subtitle">Configure as margens de segurança para evitar vendas duplicadas quando o estoque estiver baixo.</p>
+          
+          <form id="settings-form">
+            <div class="setting-toggle-row">
+              <div>
+                <strong>Modo Simulação / Demo Interativo</strong>
+                <p>Simula respostas instantâneas das APIs para testes locais na extensão.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="set-demo-mode">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-toggle-row">
+              <div>
+                <strong>Sincronização Automática em Segundo Plano</strong>
+                <p>Usa o alarme background do Chrome para checar divergências periodicamente.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="set-auto-sync">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="form-row grid-2">
+              <div class="form-group">
+                <label>Intervalo de Auto-Sync (minutos)</label>
+                <input type="number" id="set-sync-interval" class="input-text" min="1" max="1440" value="15">
+              </div>
+
+              <div class="form-group">
+                <label>Buffer de Segurança contra Overselling (unidades)</label>
+                <input type="number" id="set-overselling-buffer" class="input-text" min="0" max="50" value="2">
+                <span class="input-help">Quantidade retida automaticamente do total para evitar venda simultânea.</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Limite para Alerta de Estoque Baixo (unidades)</label>
+              <input type="number" id="set-low-threshold" class="input-text" min="1" max="100" value="5">
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Salvar Configurações</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- MODAL: NOVO / EDITAR SKU MASTER -->
+  <div id="modal-sku" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-sku-title">Novo SKU Master</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="sku-form">
+        <input type="hidden" id="sku-id-hidden">
+
+        <div class="form-row grid-2">
+          <div class="form-group">
+            <label>Código SKU Master *</label>
+            <input type="text" id="form-sku-code" class="input-text" placeholder="Ex: CAMISA-AZUL-M" required>
+          </div>
+
+          <div class="form-group">
+            <label>Categoria</label>
+            <input type="text" id="form-sku-category" class="input-text" placeholder="Ex: Vestuário">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Nome do Produto *</label>
+          <input type="text" id="form-sku-name" class="input-text" placeholder="Ex: Camiseta Algodão Azul Tamanho M" required>
+        </div>
+
+        <div class="form-row grid-3">
+          <div class="form-group">
+            <label>Estoque Total Master *</label>
+            <input type="number" id="form-sku-stock" class="input-text" min="0" value="10" required>
+          </div>
+
+          <div class="form-group">
+            <label>Estoque Reservado</label>
+            <input type="number" id="form-sku-reserved" class="input-text" min="0" value="0">
+          </div>
+
+          <div class="form-group">
+            <label>Preço Unitário (R$)</label>
+            <input type="number" id="form-sku-price" class="input-text" step="0.01" value="99.90">
+          </div>
+        </div>
+
+        <h4 class="modal-subheading">Mapeamento De-Para por Marketplace</h4>
+        
+        <div class="mapping-box meli-border">
+          <div class="mapping-header"><span class="pill-mini meli">Mercado Livre</span></div>
+          <div class="form-row grid-2">
+            <input type="text" id="map-meli-code" class="input-text" placeholder="ID Anúncio ML (Ex: MLB-123456789)">
+            <input type="text" id="map-meli-title" class="input-text" placeholder="Título no Mercado Livre">
+          </div>
+        </div>
+
+        <div class="mapping-box shopee-border">
+          <div class="mapping-header"><span class="pill-mini shopee">Shopee</span></div>
+          <div class="form-row grid-2">
+            <input type="text" id="map-shopee-code" class="input-text" placeholder="ID Anúncio Shopee (Ex: SHP-98765432)">
+            <input type="text" id="map-shopee-title" class="input-text" placeholder="Título na Shopee">
+          </div>
+        </div>
+
+        <div class="mapping-box tiktok-border">
+          <div class="mapping-header"><span class="pill-mini tiktok">TikTok Shop</span></div>
+          <div class="form-row grid-2">
+            <input type="text" id="map-tiktok-code" class="input-text" placeholder="ID Produto TikTok (Ex: TT-11223344)">
+            <input type="text" id="map-tiktok-title" class="input-text" placeholder="Título no TikTok Shop">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar SKU & Mapeamentos</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: SIMULAR VENDA MULTICANAL -->
+  <div id="modal-sale" class="modal-overlay">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h3>Simular Venda Realizado em Canal</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="sale-form">
+        <div class="form-group">
+          <label>Selecione o SKU Vendido</label>
+          <select id="sale-sku-select" class="select-input" required></select>
+        </div>
+
+        <div class="form-group">
+          <label>Canal onde a Venda Ocorreu</label>
+          <select id="sale-channel-select" class="select-input" required>
+            <option value="meli">Mercado Livre</option>
+            <option value="shopee">Shopee</option>
+            <option value="tiktok">TikTok Shop</option>
+          </select>
+        </div>
+
+        <div class="sale-preview-info" id="sale-preview-info">
+          Selecione um produto acima...
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar & Sincronizar Canais</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: GERENCIAR CONTA DE MARKETPLACE -->
+  <div id="modal-account" class="modal-overlay">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h3 id="modal-account-title">Conectar Nova Conta</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="account-form">
+        <input type="hidden" id="acc-id">
+        <div class="form-group">
+          <label>Plataforma / Marketplace *</label>
+          <select id="acc-platform" class="select-input" required>
+            <option value="meli">Mercado Livre</option>
+            <option value="shopee">Shopee</option>
+            <option value="tiktok">TikTok Shop</option>
+            <option value="amazon">Amazon BR</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Nome / Identificador da Conta *</label>
+          <input type="text" id="acc-seller-name" class="input-text" placeholder="Ex: Loja Principal - Tech & Style" required>
+        </div>
+
+        <div class="form-group">
+          <label>ID do Vendedor / Shop ID *</label>
+          <input type="text" id="acc-seller-id" class="input-text" placeholder="Ex: ML-BR-998811 ou SHP-12345" required>
+        </div>
+
+        <div class="form-group">
+          <label>Token de API / Access Key / Partner Key</label>
+          <input type="password" id="acc-token" class="input-text" placeholder="Chave da API ou Token OAuth">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Conta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: PROGRESSO DA POSTAGEM MULTICANAL -->
+  <div id="modal-multipost-progress" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🚀 Publicação Multicanal em Andamento</h3>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <p style="font-size: 13px; color: var(--text-muted);">Enviando anúncio simultaneamente para as contas selecionadas...</p>
+      </div>
+
+      <div id="multipost-progress-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto; margin-bottom: 20px;">
+        <!-- Injetado dinamicamente via JS -->
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" id="btn-close-multipost-progress" class="btn btn-primary" style="display: none;">Concluído</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>

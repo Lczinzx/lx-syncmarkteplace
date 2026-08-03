@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "LX Sync - Sincronizador de Estoque Multicanal",
+  "version": "1.0.0",
+  "description": "Sincronizador automático de estoque e SKUs entre Mercado Livre, Shopee e TikTok Shop com alertas de overselling.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "activeTab",
+    "scripting",
+    "sidePanel",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://api.mercadolibre.com/*",
+    "https://partner.shopeesz.com/*",
+    "https://open-api.tiktokchannel.com/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "LX Sync Marketplace",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "dashboard/index.html"
+  },
+  "options_page": "dashboard/index.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
