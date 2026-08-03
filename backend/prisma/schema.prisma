@@ -1,0 +1,293 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum AccountStatus {
+  CONNECTED
+  EXPIRED
+  DISCONNECTED
+  ERROR
+}
+
+enum SkuJobStatus {
+  PENDING
+  VALIDATING
+  QUEUED
+  PROCESSING
+  CONFIRMING
+  SUCCESS
+  WARNING
+  FAILED
+  CANCELLED
+}
+
+model Organization {
+  id                  String               @id @default(uuid())
+  name                String
+  slug                String               @unique
+  status              String               @default("ACTIVE")
+  users               User[]
+  accounts            MarketplaceAccount[]
+  masterProducts      MasterProduct[]
+  skuChangeJobs       SkuChangeJob[]
+  auditLogs           AuditLog[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@map("organizations")
+}
+
+model User {
+  id                  String               @id @default(uuid())
+  organizationId      String
+  googleId            String               @unique
+  name                String
+  email               String               @unique
+  avatarUrl           String?
+  role                Role                 @default(ADMIN)
+  status              String               @default("ACTIVE")
+  lastLoginAt         DateTime?
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("users")
+}
+
+model MarketplaceAccount {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  marketplace           String               // meli, shopee, tiktok, amazon
+  accountName           String
+  externalAccountId     String?
+  sellerId              String?
+  shopId                String?
+  status                AccountStatus        @default(CONNECTED)
+  accessTokenEncrypted  String
+  refreshTokenEncrypted String?
+  tokenExpiresAt        DateTime?
+  scopesJson            String?
+  connectionMetadataJson String?
+  lastSyncAt            DateTime?
+  organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listings              MarketplaceListing[]
+  mappings              ProductMapping[]
+  jobItems              SkuChangeJobItem[]
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@index([marketplace])
+  @@index([sellerId])
+  @@index([shopId])
+  @@map("marketplace_accounts")
+}
+
+model MarketplaceListing {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  marketplaceAccountId  String
+  externalListingId     String
+  externalProductId     String?
+  title                 String
+  description           String?
+  imageUrl              String?
+  categoryId            String?
+  status                String               @default("ACTIVE")
+  listingUrl            String?
+  rawDataJson           String?
+  importedAt            DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  account               MarketplaceAccount   @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  variations            MarketplaceVariation[]
+  mappings              ProductMapping[]
+  jobItems              SkuChangeJobItem[]
+
+  @@index([organizationId])
+  @@index([marketplaceAccountId])
+  @@index([externalListingId])
+  @@map("marketplace_listings")
+}
+
+model MarketplaceVariation {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  marketplaceListingId  String
+  externalVariationId   String
+  externalModelId       String?
+  variationName         String
+  attributesJson        String?
+  currentSku            String
+  price                 Float
+  stock                 Int
+  status                String               @default("ACTIVE")
+  rawDataJson           String?
+  importedAt            DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  listing               MarketplaceListing   @relation(fields: [marketplaceListingId], references: [id], onDelete: Cascade)
+  mappings              ProductMapping[]
+  jobItems              SkuChangeJobItem[]
+
+  @@index([organizationId])
+  @@index([marketplaceListingId])
+  @@index([externalVariationId])
+  @@index([currentSku])
+  @@map("marketplace_variations")
+}
+
+model MasterProduct {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  name                  String
+  masterSku             String
+  description           String?
+  imageUrl              String?
+  productType           String?              // ex: Redondo
+  theme                 String?              // ex: Zoologico
+  size                  String?              // ex: Red50
+  designCode            String?              // ex: 04
+  status                String               @default("ACTIVE")
+  organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mappings              ProductMapping[]
+  inventory             InventoryItem?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@index([masterSku])
+  @@map("master_products")
+}
+
+model ProductMapping {
+  id                      String               @id @default(uuid())
+  organizationId          String
+  masterProductId         String
+  marketplaceAccountId    String
+  marketplaceListingId    String
+  marketplaceVariationId  String?              // Vínculo granular na variação
+  currentMarketplaceSku   String
+  synchronizationEnabled  Boolean              @default(true)
+  mappingType             String               @default("MANUAL")
+  confidenceScore         Float                @default(1.0)
+  mappingMetadataJson     String?
+  lastSyncedAt            DateTime?
+  masterProduct           MasterProduct        @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+  account                 MarketplaceAccount   @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  listing                 MarketplaceListing   @relation(fields: [marketplaceListingId], references: [id], onDelete: Cascade)
+  variation               MarketplaceVariation? @relation(fields: [marketplaceVariationId], references: [id], onDelete: SetNull)
+  jobItems                SkuChangeJobItem[]
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@index([masterProductId])
+  @@index([marketplaceAccountId])
+  @@index([marketplaceListingId])
+  @@index([marketplaceVariationId])
+  @@map("product_mappings")
+}
+
+model SkuChangeJob {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  requestedBy           String
+  operationType         String               @default("BULK_SKU_UPDATE")
+  status                SkuJobStatus         @default(PENDING)
+  totalItems            Int                  @default(0)
+  pendingItems          Int                  @default(0)
+  processingItems       Int                  @default(0)
+  successfulItems       Int                  @default(0)
+  failedItems           Int                  @default(0)
+  cancelledItems        Int                  @default(0)
+  previewDataJson       String?
+  organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items                 SkuChangeJobItem[]
+  createdAt             DateTime             @default(now())
+  startedAt             DateTime?
+  completedAt           DateTime?
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("sku_change_jobs")
+}
+
+model SkuChangeJobItem {
+  id                    String               @id @default(uuid())
+  skuChangeJobId        String
+  productMappingId      String
+  marketplaceAccountId  String
+  marketplaceListingId  String
+  marketplaceVariationId String?
+  oldSku                String
+  newSku                String
+  status                SkuJobStatus         @default(PENDING)
+  attempts              Int                  @default(0)
+  idempotencyKey        String               @unique
+  externalResponseJson  String?
+  errorCode             String?
+  errorMessage          String?
+  processedAt           DateTime?
+  job                   SkuChangeJob         @relation(fields: [skuChangeJobId], references: [id], onDelete: Cascade)
+  mapping               ProductMapping       @relation(fields: [productMappingId], references: [id], onDelete: Cascade)
+  account               MarketplaceAccount   @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  listing               MarketplaceListing   @relation(fields: [marketplaceListingId], references: [id], onDelete: Cascade)
+  variation             MarketplaceVariation? @relation(fields: [marketplaceVariationId], references: [id], onDelete: SetNull)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([skuChangeJobId])
+  @@index([idempotencyKey])
+  @@index([status])
+  @@map("sku_change_job_items")
+}
+
+model InventoryItem {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  masterProductId       String               @unique
+  totalStock            Int                  @default(0)
+  reservedStock         Int                  @default(0)
+  safetyBuffer          Int                  @default(2)
+  availableStock        Int                  @default(0)
+  masterProduct         MasterProduct        @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+  updatedAt             DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@map("inventory_items")
+}
+
+model AuditLog {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  userId                String?
+  action                String
+  resourceType          String
+  resourceId            String
+  marketplace           String?
+  marketplaceAccountId  String?
+  oldValueJson          String?
+  newValueJson          String?
+  status                String               @default("SUCCESS")
+  ipAddress             String?
+  userAgent             String?
+  organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt             DateTime             @default(now())
+
+  @@index([organizationId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
