@@ -431,21 +431,27 @@ app.post('/api/uploads/images', authenticateToken, (req: AuthenticatedRequest, r
   });
 });
 
-app.get('/health', (req: Request, res: Response) => {
-  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend REST API (Fase 3.7)', time: new Date().toISOString() });
-});
+const healthHandlerLive = (req: Request, res: Response) => {
+  return res.status(200).json({ status: 'ok', service: 'lx-sync-api', uptime: process.uptime() });
+};
 
-app.get('/health/live', (req: Request, res: Response) => {
-  return res.json({ status: 'LIVE', uptime: process.uptime() });
-});
+const healthHandlerReady = (req: Request, res: Response) => {
+  return res.status(200).json({ status: 'ok', service: 'lx-sync-api', db: 'CONNECTED' });
+};
 
-app.get('/health/ready', (req: Request, res: Response) => {
-  return res.json({ status: 'READY', db: 'CONNECTED' });
-});
+const healthHandlerWorker = (req: Request, res: Response) => {
+  return res.status(200).json({ status: 'ok', service: 'lx-sync-api', worker: 'ACTIVE', queue: 'SKU_JOB_QUEUE' });
+};
 
-app.get('/health/worker', (req: Request, res: Response) => {
-  return res.json({ status: 'ONLINE', worker: 'ACTIVE', queue: 'SKU_JOB_QUEUE' });
-});
+app.get('/health', healthHandlerLive);
+app.get('/health/live', healthHandlerLive);
+app.get('/health/ready', healthHandlerReady);
+app.get('/health/worker', healthHandlerWorker);
+
+app.get('/api/health', healthHandlerLive);
+app.get('/api/health/live', healthHandlerLive);
+app.get('/api/health/ready', healthHandlerReady);
+app.get('/api/health/worker', healthHandlerWorker);
 
 app.listen(PORT, () => {
   console.log(`🚀 LX Sync Backend Server (Fase 3) rodando na porta ${PORT}`);
