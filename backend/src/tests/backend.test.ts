@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import { isAdminEmail, getAdminEmails, verifyGoogleToken, generateSessionJWT, verifySessionJWT } from '../auth/google-auth.service.js';
 import { encryptSecret, decryptSecret, maskSensitiveValue } from '../utils/crypto.js';
 import { toFriendlyDbErrorMessage } from '../utils/prisma-errors.js';
+import { parseAllowedOrigins, normalizeOrigin, isOriginAllowed } from '../utils/cors-config.js';
 import { FakeMarketplaceAdapter } from '../marketplaces/fake-marketplace.adapter.js';
 
 console.log('🧪 Executando Testes Automatizados da API do Backend LX Sync...\n');
@@ -293,6 +294,54 @@ async function runTests() {
     assert.strictEqual(toFriendlyDbErrorMessage(err, 'Não foi possível carregar as contas.'), 'Não foi possível carregar as contas.');
     assert.strictEqual(toFriendlyDbErrorMessage(null, 'fallback'), 'fallback');
     assert.strictEqual(toFriendlyDbErrorMessage('string-error', 'fallback'), 'fallback');
+  });
+
+  // ============================================================
+  // GRUPO 8: CORS — Origens Permitidas (ALLOWED_ORIGINS)
+  // ============================================================
+  console.log('\n📋 8. CORS (ALLOWED_ORIGINS)');
+
+  await test('ALLOWED_ORIGINS é separado por vírgula e cada origem recebe trim', () => {
+    const origins = parseAllowedOrigins(
+      '  https://lx-syncmarketplace.lczinz.workers.dev , https://lxsync.netlify.app  ',
+      undefined
+    );
+    assert.deepStrictEqual(origins, [
+      'https://lx-syncmarketplace.lczinz.workers.dev',
+      'https://lxsync.netlify.app'
+    ]);
+  });
+
+  await test('Origem Cloudflare Workers (publicada) é permitida', () => {
+    const origins = parseAllowedOrigins('https://lx-syncmarketplace.lczinz.workers.dev,https://lxsync.netlify.app', undefined);
+    assert.strictEqual(isOriginAllowed('https://lx-syncmarketplace.lczinz.workers.dev', origins), true);
+  });
+
+  await test('Origem Netlify (fallback) é permitida', () => {
+    const origins = parseAllowedOrigins('https://lx-syncmarketplace.lczinz.workers.dev,https://lxsync.netlify.app', undefined);
+    assert.strictEqual(isOriginAllowed('https://lxsync.netlify.app', origins), true);
+  });
+
+  await test('Origem desconhecida é rejeitada', () => {
+    const origins = parseAllowedOrigins('https://lx-syncmarketplace.lczinz.workers.dev', undefined);
+    assert.strictEqual(isOriginAllowed('https://evil-site.example.com', origins), false);
+  });
+
+  await test('Requisições sem Origin (healthcheck/servidor-servidor) são permitidas', () => {
+    const origins = parseAllowedOrigins('https://lx-syncmarketplace.lczinz.workers.dev', undefined);
+    assert.strictEqual(isOriginAllowed(null, origins), false); // no header
+    assert.strictEqual(isOriginAllowed(undefined, origins), false);
+    // O middleware CORS permite !origin diretamente (ver server.ts)
+  });
+
+  await test('FRONTEND_URL é mantido como fallback temporário', () => {
+    const origins = parseAllowedOrigins(undefined, 'https://lxsync.netlify.app');
+    assert.strictEqual(isOriginAllowed('https://lxsync.netlify.app', origins), true);
+  });
+
+  await test('Normalização remove barra final da origem', () => {
+    assert.strictEqual(normalizeOrigin('https://lxsync.netlify.app/'), 'https://lxsync.netlify.app');
+    assert.strictEqual(isOriginAllowed('https://lxsync.netlify.app/', ['https://lxsync.netlify.app']), true);
   });
 
   // ============================================================

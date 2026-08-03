@@ -147,6 +147,7 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 - **Frontend Netlify (Web App SaaS 24/7)**: [lxsync.netlify.app](https://lxsync.netlify.app/) — env var **`VITE_GOOGLE_CLIENT_ID`** (mesmo Client ID do backend) e `VITE_API_URL=https://lx-sync-api.onrender.com`.
 - **Backend API Node.js / Express (Render)**: [lx-sync-api.onrender.com](https://lx-sync-api.onrender.com/) — REST API com CORS restrito por `FRONTEND_URL`, Prisma ORM e PostgreSQL.
   - Env vars obrigatórias: `GOOGLE_CLIENT_ID`, `JWT_SECRET`, `ENCRYPTION_KEY`, `ADMIN_EMAILS`, `FRONTEND_URL` (+ `DATABASE_URL`).
+  - **CORS**: `ALLOWED_ORIGINS` (separadas por vírgula, com `FRONTEND_URL` como fallback temporário) — atualmente `https://lx-syncmarketplace.lczinz.workers.dev,https://lxsync.netlify.app`. Comparação exata do header `Origin`, `credentials: true`, headers `Authorization`/`Content-Type`, OPTIONS/preflight habilitado; requisições sem `Origin` (healthchecks/servidor-servidor) permitidas.
   - Env opcional: `ENABLE_DEMO_SEED=true` (cria/atualiza a conta DEMO `acc-shopee-demo` da org `org-festum-decor` no boot do servidor, via upsert idempotente).
   - **Build Command (plano Free):**
     ```

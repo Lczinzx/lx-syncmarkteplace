@@ -7,6 +7,7 @@ import { FakeMarketplaceAdapter } from './marketplaces/fake-marketplace.adapter.
 import { ImportService } from './services/import.service.js';
 import { ensureDemoData } from './services/demo-seed.service.js';
 import { toFriendlyDbErrorMessage } from './utils/prisma-errors.js';
+import { parseAllowedOrigins, normalizeOrigin } from './utils/cors-config.js';
 import {
   listMarketplaceAccounts,
   findAccountByOrg,
@@ -58,17 +59,36 @@ ensureDemoData(prisma)
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const allowedOrigins = process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : ['http://localhost:5173', 'http://localhost:3000', 'https://lxsync.netlify.app'];
+// Origens permitidas: ALLOWED_ORIGINS (vírgula) + FRONTEND_URL (fallback temporário)
+const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGINS, process.env.FRONTEND_URL);
+const hasAllowedOrigins = allowedOrigins.length > 0;
+
+// Fallback final de desenvolvimento quando nenhuma variável está configurada
+const effectiveAllowedOrigins = hasAllowedOrigins
+  ? allowedOrigins
+  : ['http://localhost:5173', 'http://localhost:3000', 'https://lxsync.netlify.app'];
+
+console.log(`[CORS] Origens permitidas (${effectiveAllowedOrigins.length}):`);
+effectiveAllowedOrigins.forEach(o => console.log(`  - ${o}`));
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
-    } else {
-      callback(new Error('Bloqueado por regra de segurança CORS.'));
+    // Requisições sem Origin (healthchecks e chamadas servidor-servidor): permitidas
+    if (!origin) {
+      return callback(null, true);
     }
+
+    const normalized = normalizeOrigin(origin);
+
+    // Comparação EXATA com a lista de origens permitidas
+    if (effectiveAllowedOrigins.includes(normalized)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Bloqueado por regra de segurança CORS (origem não autorizada: ${origin}).`));
   },
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Authorization', 'Content-Type']
 }));
 
 app.use(express.json());
