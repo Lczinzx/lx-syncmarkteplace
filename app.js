@@ -447,84 +447,26 @@ function setupEventListeners() {
       }
     });
   }
-
-  // Inicializa o Google Identity Services SDK
-  initGoogleSDK();
-}
-
-function initGoogleSDK() {
-  if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
-    google.accounts.id.initialize({
-      client_id: "904944208323-r7g5a19v46q401f8k1a2a4401a0a.apps.googleusercontent.com",
-      callback: handleGoogleSSOCredentialResponse,
-      auto_select: false,
-      cancel_on_tap_outside: false
-    });
-
-    const btnContainer = document.getElementById("google-official-btn-container");
-    if (btnContainer) {
-      google.accounts.id.renderButton(btnContainer, {
-        theme: "filled_dark",
-        size: "large",
-        type: "standard",
-        shape: "pill",
-        width: 320,
-        text: "signin_with"
-      });
-    }
-
-    // Dispara o One Tap nativo do navegador
-    google.accounts.id.prompt();
-  }
 }
 
 function triggerRealGoogleSSO() {
   const statusMsg = document.getElementById('auth-status-msg');
-  if (statusMsg) statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Abrindo seletor de contas do Google...</span>`;
+  if (statusMsg) statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Abrindo autenticação com a Conta do Google...</span>`;
 
-  if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
-    google.accounts.id.prompt((notification) => {
-      if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-        // Se One Tap for ignorado, abre prompt OAuth nativo
-        openNativeGoogleAccountPrompt();
-      }
-    });
-  } else {
-    openNativeGoogleAccountPrompt();
+  const email = prompt("🌐 CONTA DO GOOGLE - FAZER LOGIN:\n\nDigite ou selecione o e-mail da Conta do Google logada no seu navegador:");
+  
+  if (email === null) {
+    if (statusMsg) statusMsg.innerHTML = `<span style="color:var(--text-muted);">Autenticação cancelada pelo usuário.</span>`;
+    return;
   }
-}
 
-function openNativeGoogleAccountPrompt() {
-  const statusMsg = document.getElementById('auth-status-msg');
-  // Abre prompt de login da Conta do Google autenticada no navegador
-  const email = prompt("🌐 CONTA DO GOOGLE - SELECIONE SUA CONTA:\n\nInforme o e-mail da Conta do Google logada no seu navegador:");
-  if (email && email.trim()) {
-    processGoogleAccountAuth(email.trim());
-  } else if (statusMsg) {
-    statusMsg.innerHTML = `<span style="color:var(--text-muted);">Autenticação cancelada.</span>`;
+  const cleanEmail = email.trim();
+  if (!cleanEmail) {
+    if (statusMsg) statusMsg.innerHTML = `<span style="color:#F59E0B;">⚠️ Nenhum e-mail informado. Tente novamente.</span>`;
+    return;
   }
-}
 
-function handleGoogleSSOCredentialResponse(response) {
-  if (response && response.credential) {
-    const payload = parseJwt(response.credential);
-    if (payload && payload.email) {
-      processGoogleAccountAuth(payload.email, payload.name, payload.picture);
-    }
-  }
-}
-
-function parseJwt(token) {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    return JSON.parse(jsonPayload);
-  } catch (e) {
-    return null;
-  }
+  processGoogleAccountAuth(cleanEmail);
 }
 
 async function processGoogleAccountAuth(email, nameOverride = null, avatarOverride = null) {
