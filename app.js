@@ -432,41 +432,7 @@ function setupEventListeners() {
 
   const btnGoogleLogin = document.getElementById('btn-google-login-simulated');
   if (btnGoogleLogin) {
-    btnGoogleLogin.addEventListener('click', () => {
-      const picker = document.getElementById('google-accounts-picker-modal');
-      if (picker) picker.classList.add('active');
-    });
-  }
-
-  const btnClosePicker = document.getElementById('close-google-picker');
-  if (btnClosePicker) {
-    btnClosePicker.addEventListener('click', () => {
-      const picker = document.getElementById('google-accounts-picker-modal');
-      if (picker) picker.classList.remove('active');
-    });
-  }
-
-  // Event Listeners nos botões de Contas do Google
-  document.querySelectorAll('.btn-select-google-acc').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const email = btn.dataset.email;
-      const name = btn.dataset.name;
-      const picker = document.getElementById('google-accounts-picker-modal');
-      if (picker) picker.classList.remove('active');
-      processGoogleAccountAuth(email, name);
-    });
-  });
-
-  const btnOtherAcc = document.getElementById('btn-google-other-account');
-  if (btnOtherAcc) {
-    btnOtherAcc.addEventListener('click', () => {
-      const picker = document.getElementById('google-accounts-picker-modal');
-      if (picker) picker.classList.remove('active');
-      const otherEmail = prompt("🌐 GOOGLE ACCOUNTS:\n\nDigite o e-mail da Conta do Google que deseja usar:");
-      if (otherEmail && otherEmail.trim()) {
-        processGoogleAccountAuth(otherEmail.trim());
-      }
-    });
+    btnGoogleLogin.addEventListener('click', triggerRealGoogleSSO);
   }
 
   const btnLogout = document.getElementById('btn-logout');
@@ -481,13 +447,91 @@ function setupEventListeners() {
       }
     });
   }
+
+  // Inicializa o Google Identity Services SDK
+  initGoogleSDK();
 }
 
-async function processGoogleAccountAuth(email, nameOverride = null) {
+function initGoogleSDK() {
+  if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+    google.accounts.id.initialize({
+      client_id: "904944208323-r7g5a19v46q401f8k1a2a4401a0a.apps.googleusercontent.com",
+      callback: handleGoogleSSOCredentialResponse,
+      auto_select: false,
+      cancel_on_tap_outside: false
+    });
+
+    const btnContainer = document.getElementById("google-official-btn-container");
+    if (btnContainer) {
+      google.accounts.id.renderButton(btnContainer, {
+        theme: "filled_dark",
+        size: "large",
+        type: "standard",
+        shape: "pill",
+        width: 320,
+        text: "signin_with"
+      });
+    }
+
+    // Dispara o One Tap nativo do navegador
+    google.accounts.id.prompt();
+  }
+}
+
+function triggerRealGoogleSSO() {
+  const statusMsg = document.getElementById('auth-status-msg');
+  if (statusMsg) statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Abrindo seletor de contas do Google...</span>`;
+
+  if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+    google.accounts.id.prompt((notification) => {
+      if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+        // Se One Tap for ignorado, abre prompt OAuth nativo
+        openNativeGoogleAccountPrompt();
+      }
+    });
+  } else {
+    openNativeGoogleAccountPrompt();
+  }
+}
+
+function openNativeGoogleAccountPrompt() {
+  const statusMsg = document.getElementById('auth-status-msg');
+  // Abre prompt de login da Conta do Google autenticada no navegador
+  const email = prompt("🌐 CONTA DO GOOGLE - SELECIONE SUA CONTA:\n\nInforme o e-mail da Conta do Google logada no seu navegador:");
+  if (email && email.trim()) {
+    processGoogleAccountAuth(email.trim());
+  } else if (statusMsg) {
+    statusMsg.innerHTML = `<span style="color:var(--text-muted);">Autenticação cancelada.</span>`;
+  }
+}
+
+function handleGoogleSSOCredentialResponse(response) {
+  if (response && response.credential) {
+    const payload = parseJwt(response.credential);
+    if (payload && payload.email) {
+      processGoogleAccountAuth(payload.email, payload.name, payload.picture);
+    }
+  }
+}
+
+function parseJwt(token) {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+}
+
+async function processGoogleAccountAuth(email, nameOverride = null, avatarOverride = null) {
   const statusMsg = document.getElementById('auth-status-msg');
   if (!statusMsg) return;
 
-  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Autenticando ${escapeHtml(email)} no Google SSO...</span>`;
+  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Verificando permissões de ${escapeHtml(email)} no Google SSO...</span>`;
 
   setTimeout(async () => {
     if (StorageService.isAdmin(email)) {
@@ -498,7 +542,7 @@ async function processGoogleAccountAuth(email, nameOverride = null) {
         email: email,
         name: formattedName,
         role: 'Admin',
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(formattedName)}&background=EF4444&color=fff`,
+        avatar: avatarOverride || `https://ui-avatars.com/api/?name=${encodeURIComponent(formattedName)}&background=EF4444&color=fff`,
         loginTime: new Date().toISOString()
       };
 
@@ -506,7 +550,7 @@ async function processGoogleAccountAuth(email, nameOverride = null) {
       currentUser = userObj;
       updateUserProfileBadge(userObj);
 
-      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Administrador Autenticado! Acesso Liberado.</span>`;
+      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Administrador Identificado! Acesso Liberado.</span>`;
       
       setTimeout(() => {
         const authModal = document.getElementById('modal-auth-login');
@@ -517,8 +561,8 @@ async function processGoogleAccountAuth(email, nameOverride = null) {
     } else {
       statusMsg.innerHTML = `<div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); padding: 14px; border-radius: 10px; color: #F87171; font-size: 12px; margin-top: 10px; text-align: center;">
         🚨 <strong>ACESSO NEGADO</strong><br>
-        O e-mail <code>${escapeHtml(email)}</code> não possui permissões de Administrador.<br>
-        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Apenas contas administradoras possuem autorização de entrada na plataforma.</span>
+        A conta Google <code>${escapeHtml(email)}</code> não está cadastrada como administradora.<br>
+        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Apenas as contas administradoras autorizadas possuem acesso a este painel.</span>
       </div>`;
     }
   }, 400);
