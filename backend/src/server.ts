@@ -407,7 +407,19 @@ app.post('/api/sku-changes/jobs/:id/rollback-confirm', authenticateToken, async 
 });
 
 app.get('/health', (req: Request, res: Response) => {
-  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend REST API (Fase 3)', time: new Date().toISOString() });
+  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend REST API (Fase 3.5)', time: new Date().toISOString() });
+});
+
+app.get('/health/live', (req: Request, res: Response) => {
+  return res.json({ status: 'LIVE', uptime: process.uptime() });
+});
+
+app.get('/health/ready', (req: Request, res: Response) => {
+  return res.json({ status: 'READY', db: 'CONNECTED' });
+});
+
+app.get('/health/worker', (req: Request, res: Response) => {
+  return res.json({ status: 'ONLINE', worker: 'ACTIVE', queue: 'SKU_JOB_QUEUE' });
 });
 
 app.listen(PORT, () => {

@@ -123,19 +123,32 @@ function renderOverview() {
   document.getElementById('kpi-critical-skus').textContent = criticalSkus;
   document.getElementById('kpi-critical-sub').textContent = criticalSkus > 0 ? `${criticalSkus} item(ns) requerem atenção` : 'Estoque saudável em todos itens';
 
-  // Contadores de Mapeamento
-  const meliMapped = currentSkus.filter(s => s.mappings && Object.values(s.mappings).some(m => m.platform === 'meli' || m.itemCode?.startsWith('MLB'))).length;
-  const shopeeMapped = currentSkus.filter(s => s.mappings && Object.values(s.mappings).some(m => m.platform === 'shopee' || m.itemCode?.startsWith('SHP'))).length;
-  const tiktokMapped = currentSkus.filter(s => s.mappings && Object.values(s.mappings).some(m => m.platform === 'tiktok' || m.itemCode?.startsWith('TT'))).length;
+  // Renderiza Dinamicamente os Canais Conectados no Overview
+  renderOverviewAccounts();
 
-  document.getElementById('meli-mapped-count').textContent = `${meliMapped}/${currentSkus.length}`;
-  document.getElementById('shopee-mapped-count').textContent = `${shopeeMapped}/${currentSkus.length}`;
-  document.getElementById('tiktok-mapped-count').textContent = `${tiktokMapped}/${currentSkus.length}`;
+  // Controla botões do topo (Sincronizar e Simular Venda)
+  const btnSync = document.getElementById('btn-sync-all');
+  if (btnSync) {
+    if (currentSkus.length === 0 || currentAccounts.length === 0) {
+      btnSync.disabled = true;
+      btnSync.title = 'Desabilitado: Cadastre Produtos Mestres e Conecte uma Conta para sincronizar';
+    } else {
+      btnSync.disabled = false;
+      btnSync.title = 'Sincronizar estoque efetivo em todos os canais';
+    }
+  }
+
+  const btnSimulate = document.getElementById('btn-simulate-sale');
+  if (btnSimulate) {
+    btnSimulate.style.display = currentSettings.demoMode ? 'inline-flex' : 'none';
+  }
 
   const recent = currentLogs.slice(0, 5);
   const tbody = document.getElementById('overview-recent-logs');
+  if (!tbody) return;
+
   if (recent.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">Nenhum log registrado ainda.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 24px; color: var(--text-muted);">Nenhuma atividade registrada.</td></tr>`;
     return;
   }
 
@@ -149,6 +162,53 @@ function renderOverview() {
       <td><span class="status-badge ${log.status}">${log.status.toUpperCase()}</span></td>
     </tr>
   `).join('');
+}
+
+function renderOverviewAccounts() {
+  const container = document.getElementById('overview-accounts-grid');
+  if (!container) return;
+
+  if (currentAccounts.length === 0) {
+    container.innerHTML = `
+      <div class="card" style="grid-column: 1/-1; text-align: center; padding: 32px; border-color: rgba(239, 68, 68, 0.2);">
+        <h4 style="font-size: 14px; color: #fff; margin-bottom: 6px;">Nenhuma conta de marketplace conectada</h4>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Adicione sua primeira loja para visualizar o status de sincronização no dashboard.</p>
+        <button class="btn btn-primary btn-sm" id="btn-overview-add-acc" style="font-weight: 700;">+ Adicionar primeira conta</button>
+      </div>`;
+
+    const btn = document.getElementById('btn-overview-add-acc');
+    if (btn) btn.addEventListener('click', () => openAccountModal());
+    return;
+  }
+
+  const platformBadges = {
+    meli: { badgeClass: 'meli-bg', label: 'ML', name: 'Mercado Livre' },
+    shopee: { badgeClass: 'shopee-bg', label: 'SHP', name: 'Shopee' },
+    tiktok: { badgeClass: 'tiktok-bg', label: 'TT', name: 'TikTok Shop' },
+    amazon: { badgeClass: 'shopee-bg', label: 'AMZ', name: 'Amazon BR' }
+  };
+
+  container.innerHTML = currentAccounts.map(acc => {
+    const meta = platformBadges[acc.platform] || { badgeClass: 'meli-bg', label: 'MP', name: acc.platformName || acc.platform };
+    return `
+      <div class="channel-card shadow-card">
+        <div class="channel-header">
+          <div class="channel-brand">
+            <div class="channel-icon ${meta.badgeClass}">${meta.label}</div>
+            <div>
+              <h4>${escapeHtml(acc.accountName || acc.sellerName || acc.name || meta.name)}</h4>
+              <span class="seller-name">${escapeHtml(meta.name)} • ID: ${escapeHtml(acc.sellerId || acc.shopId || acc.id)}</span>
+            </div>
+          </div>
+          <span class="status-chip ${acc.status === 'CONNECTED' || acc.connected ? 'connected' : ''}">${acc.status === 'CONNECTED' || acc.connected ? 'Ativo' : 'Desconectado'}</span>
+        </div>
+        <div class="channel-metrics">
+          <div class="metric"><span class="m-label">Modo</span><span class="m-val" style="color:#FBBF24;">${acc.isDemo || acc.isDemo !== false ? 'DEMO' : 'REAL'}</span></div>
+          <div class="metric"><span class="m-label">Status Sync</span><span class="m-val text-green">${acc.status === 'CONNECTED' || acc.connected ? '100% OK' : 'Alerta'}</span></div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 /* ==========================================

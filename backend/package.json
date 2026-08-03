@@ -1,10 +1,14 @@
 {
   "name": "lx-sync-marketplace-backend",
   "version": "1.0.0",
-  "description": "Backend REST API da Plataforma Multicanal LX Sync Marketplace",
+  "description": "Backend REST API e Worker Assíncrono da Plataforma Multicanal LX Sync Marketplace",
   "main": "dist/server.js",
   "type": "module",
   "scripts": {
+    "dev:api": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/jobs/worker.ts",
+    "start:api": "node dist/server.js",
+    "start:worker": "node dist/jobs/worker.js",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
