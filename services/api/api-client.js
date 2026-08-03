@@ -67,10 +67,19 @@ export async function apiFetch(endpoint, options = {}) {
       throw new Error('Acesso negado: Você não possui permissões para realizar esta ação.');
     }
 
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const textBody = await response.text();
+      console.warn(`⚠️ [API NON-JSON RESPONSE] Status ${response.status}:`, textBody.slice(0, 200));
+      throw new Error(`A API retornou uma resposta não-JSON (HTTP ${response.status}). Verifique a rota do servidor.`);
+    }
+
     const data = await response.json();
 
     if (!response.ok || data.success === false) {
-      throw new Error(data.error || data.message || `Erro HTTP ${response.status}`);
+      const errObj = data.error || data.message;
+      const errMsg = typeof errObj === 'object' ? errObj.message : String(errObj || `Erro HTTP ${response.status}`);
+      throw new Error(errMsg);
     }
 
     return data;

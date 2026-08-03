@@ -248,6 +248,50 @@ app.get('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedReque
   return res.json({ success: true, accounts: safeAccounts });
 });
 
+app.post('/api/marketplace-accounts/:id/import', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accountId = req.params.id;
+    const account = dbStore.accounts.find(a => a.id === accountId);
+
+    if (!account) {
+      return res.status(404).json({
+        error: {
+          code: 'MARKETPLACE_ACCOUNT_NOT_FOUND',
+          message: 'Conta de marketplace não encontrada.'
+        }
+      });
+    }
+
+    const adapter = new FakeMarketplaceAdapter(account.marketplace, account.id);
+    const mockListings = await adapter.listListings({ page: 1, limit: 10 });
+
+    account.lastImportAt = new Date().toISOString();
+    account.lastSyncAt = new Date().toISOString();
+
+    const jobId = `job-import-${Date.now()}`;
+
+    dbStore.auditLogs.push({
+      id: `audit-${Date.now()}`,
+      organizationId: req.user!.organizationId,
+      userId: req.user!.userId,
+      action: 'IMPORT_LISTINGS',
+      resourceType: 'MARKETPLACE_ACCOUNT',
+      resourceId: account.id,
+      status: 'SUCCESS',
+      createdAt: new Date().toISOString()
+    });
+
+    return res.json({
+      jobId,
+      status: 'PENDING',
+      message: 'Importação iniciada em modo demonstração.'
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
 app.get('/api/sku-changes/capabilities', authenticateToken, async (req: Request, res: Response) => {
   const adapter = new FakeMarketplaceAdapter();
   const caps = await adapter.getCapabilities();
@@ -452,6 +496,16 @@ app.get('/api/health', healthHandlerLive);
 app.get('/api/health/live', healthHandlerLive);
 app.get('/api/health/ready', healthHandlerReady);
 app.get('/api/health/worker', healthHandlerWorker);
+
+// Fallback JSON 404 Middleware para qualquer rota /api inexistente
+app.use('/api', (req: Request, res: Response) => {
+  return res.status(404).json({
+    error: {
+      code: 'API_ROUTE_NOT_FOUND',
+      message: 'Rota da API não encontrada.'
+    }
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`🚀 LX Sync Backend Server (Fase 3) rodando na porta ${PORT}`);

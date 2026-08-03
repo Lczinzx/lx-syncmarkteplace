@@ -146,7 +146,7 @@ function switchTab(tabId) {
   const titles = {
     overview: { title: 'Visão Geral', sub: 'Acompanhe a sincronização de estoque entre Mercado Livre, Shopee, TikTok Shop e Amazon BR.' },
     multipost: { title: 'Publicador Multi-Post', sub: 'Cadastre seu anúncio uma vez e publique simultaneamente em todas as suas contas conectadas.' },
-    skus: { title: 'Estoque Master & SKUs', sub: 'Gerencie seu catálogo central e o mapeamento de códigos (De-Para) por canal.' },
+    skus: { title: 'Anúncios & SKUs', sub: 'Gerencie seu catálogo central e o mapeamento de códigos (De-Para) por canal.' },
     analyzer: { title: 'LX Marketplace Analyzer', sub: 'Estimativa de vendas em 30 dias, cálculo de margem/comissões e títulos SEO recomendados por IA.' },
     channels: { title: 'Canais & APIs', sub: 'Gerenciamento de múltiplas contas ativas e credenciais de cada plataforma.' },
     logs: { title: 'Logs de Auditoria', sub: 'Histórico auditável e transparente de todas as alterações de estoque.' },
