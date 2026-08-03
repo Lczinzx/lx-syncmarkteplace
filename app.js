@@ -612,10 +612,8 @@ function setupEventListeners() {
   const btnExport = document.getElementById('btn-export-logs');
   if (btnExport) btnExport.addEventListener('click', exportLogsCsv);
 
-  const btnGoogleLogin = document.getElementById('btn-google-login-simulated');
-  if (btnGoogleLogin) {
-    btnGoogleLogin.addEventListener('click', triggerRealGoogleSSO);
-  }
+  // Google Identity Services: inicializar após o script GSI carregar
+  initGoogleIdentityServices();
 
   const btnLogout = document.getElementById('btn-logout');
   if (btnLogout) btnLogout.addEventListener('click', handleLogout);
@@ -743,39 +741,100 @@ function renderUploadedThumbnails() {
   });
 }
 
-function triggerRealGoogleSSO() {
-  const statusMsg = document.getElementById('auth-status-msg');
-  if (statusMsg) statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Abrindo autenticação com a Conta do Google...</span>`;
-
-  const email = prompt("🌐 CONTA DO GOOGLE - FAZER LOGIN:\n\nDigite ou selecione o e-mail da Conta do Google logada no seu navegador:");
-  
-  if (email === null) {
-    if (statusMsg) statusMsg.innerHTML = `<span style="color:var(--text-muted);">Autenticação cancelada pelo usuário.</span>`;
-    return;
+/**
+ * Obtém o Google Client ID para o frontend.
+ * Em produção: VITE_GOOGLE_CLIENT_ID via import.meta.env
+ * Em desenvolvimento: fallback para variável conhecida
+ */
+function getGoogleClientId() {
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+    return import.meta.env.VITE_GOOGLE_CLIENT_ID;
   }
-
-  const cleanEmail = email.trim();
-  if (!cleanEmail) {
-    if (statusMsg) statusMsg.innerHTML = `<span style="color:#F59E0B;">⚠️ Nenhum e-mail informado. Tente novamente.</span>`;
-    return;
-  }
-
-  processGoogleAccountAuth(cleanEmail);
+  // Fallback para desenvolvimento local
+  return null;
 }
 
-async function processGoogleAccountAuth(email) {
+/**
+ * Inicializa o Google Identity Services (GIS).
+ * O GIS renderiza o botão de login real do Google e retorna
+ * um ID Token (credential) assinado pelo Google.
+ */
+function initGoogleIdentityServices() {
   const statusMsg = document.getElementById('auth-status-msg');
-  if (!statusMsg) return;
+  const googleClientId = getGoogleClientId();
 
-  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Autenticando ${escapeHtml(email)} no Backend LX Sync...</span>`;
+  if (!googleClientId) {
+    console.error('[AUTH] VITE_GOOGLE_CLIENT_ID não configurado.');
+    if (statusMsg) {
+      statusMsg.innerHTML = `<span style="color:#F87171;">⚠️ VITE_GOOGLE_CLIENT_ID não configurado. Login indisponível.</span>`;
+    }
+    return;
+  }
+
+  // Aguardar o script GSI carregar
+  function tryInit() {
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.id) {
+      setTimeout(tryInit, 200);
+      return;
+    }
+
+    google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: handleGoogleCredentialResponse,
+      auto_select: false,
+      cancel_on_tap_outside: true
+    });
+
+    // Renderizar o botão oficial do Google no container
+    const googleBtnContainer = document.getElementById('google-signin-button');
+    if (googleBtnContainer) {
+      google.accounts.id.renderButton(googleBtnContainer, {
+        theme: 'filled_black',
+        size: 'large',
+        width: 380,
+        text: 'signin_with',
+        shape: 'pill',
+        logo_alignment: 'center'
+      });
+    }
+
+    // Também permitir login via botão customizado como fallback
+    const btnCustomGoogle = document.getElementById('btn-google-login-custom');
+    if (btnCustomGoogle) {
+      btnCustomGoogle.addEventListener('click', () => {
+        google.accounts.id.prompt();
+      });
+    }
+
+    console.log('[AUTH] Google Identity Services inicializado com sucesso.');
+  }
+
+  tryInit();
+}
+
+/**
+ * Callback do Google Identity Services.
+ * Recebe o credential (Google ID Token) e envia ao backend.
+ * NUNCA envia email/nome/avatar diretamente — tudo vem do token validado.
+ */
+async function handleGoogleCredentialResponse(response) {
+  const statusMsg = document.getElementById('auth-status-msg');
+
+  if (!response || !response.credential) {
+    if (statusMsg) statusMsg.innerHTML = `<span style="color:#F87171;">⚠️ Credencial do Google não recebida. Tente novamente.</span>`;
+    return;
+  }
+
+  if (statusMsg) statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Validando credencial do Google no Backend LX Sync...</span>`;
 
   try {
-    const res = await AuthAPI.loginWithGoogle(email);
+    // Enviar SOMENTE a credential (Google ID Token) ao backend
+    const res = await AuthAPI.loginWithGoogle(response.credential);
     if (res && res.token) {
       currentUser = res.user;
       updateUserProfileBadge(currentUser);
-      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Administrador Autenticado! JWT gerado.</span>`;
-      showNotification('success', 'Sessão Conectada', `Bem-vindo, ${res.user.name || res.user.email}! Sessão autorizada no backend.`);
+      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Autenticado via Google OAuth real! JWT de sessão gerado.</span>`;
+      showNotification('success', 'Sessão Conectada', `Bem-vindo, ${res.user.name || res.user.email}! Sessão autorizada via Google OAuth.`);
 
       setTimeout(async () => {
         const authModal = document.getElementById('modal-auth-login');

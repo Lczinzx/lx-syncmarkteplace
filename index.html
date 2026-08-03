@@ -677,11 +677,15 @@
       <h2 style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 6px;">LX Sync Admin Login</h2>
       <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 24px;">Acesso restrito aos e-mails administradores autorizados do sistema.</p>
 
-      <!-- Single Clean Google SSO Login Box -->
+      <!-- Google Identity Services - Botão Real do Google OAuth -->
       <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-card); border-radius: 14px; padding: 24px 20px; margin-bottom: 20px;">
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">Clique no botão abaixo para autenticar com a sua Conta do Google:</p>
 
-        <button id="btn-google-login-simulated" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 14px; font-size: 14px; font-weight: 700; gap: 12px; border-radius: 12px;">
+        <!-- Container onde o Google Identity Services renderiza o botão oficial -->
+        <div id="google-signin-button" style="display: flex; justify-content: center; margin-bottom: 12px;"></div>
+
+        <!-- Botão customizado como fallback (aciona o prompt do GIS) -->
+        <button id="btn-google-login-custom" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 14px; font-size: 14px; font-weight: 700; gap: 12px; border-radius: 12px; display: none;">
           <svg width="20" height="20" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
             <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>

@@ -187,22 +187,57 @@ const dbStore = {
 
 app.post('/api/auth/google', async (req: Request, res: Response) => {
   try {
-    const { token } = req.body;
-    if (!token) {
-      return res.status(400).json({ success: false, error: 'Token do Google é obrigatório.' });
-    }
+    const body = req.body;
 
-    const googleUser = await verifyGoogleToken(token);
-    
-    if (!isAdminEmail(googleUser.email)) {
-      return res.status(403).json({
-        success: false,
-        error: `ACESSO NEGADO: A conta Google (${googleUser.email}) não está autorizada como administradora.`
+    // Rejeitar payloads que enviam dados de usuário controlados pelo frontend
+    if (!body.credential && (body.email || body.name || body.avatar || body.token)) {
+      return res.status(400).json({
+        error: {
+          code: 'GOOGLE_CREDENTIAL_REQUIRED',
+          message: 'Credencial do Google obrigatória. Não é permitido enviar email, nome ou avatar diretamente.'
+        }
       });
     }
 
+    // Exigir campo credential
+    const { credential } = body;
+    if (!credential || typeof credential !== 'string') {
+      return res.status(400).json({
+        error: {
+          code: 'GOOGLE_CREDENTIAL_REQUIRED',
+          message: 'Credencial do Google obrigatória.'
+        }
+      });
+    }
+
+    // Validar token Google real via verifyIdToken (assinatura, audience, issuer, expiração, email_verified)
+    let googleUser;
+    try {
+      googleUser = await verifyGoogleToken(credential);
+    } catch (verifyErr: unknown) {
+      const verifyMsg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
+      console.error(`[AUTH] Falha na verificação do Google ID Token: ${verifyMsg}`);
+      return res.status(401).json({
+        error: {
+          code: 'INVALID_GOOGLE_CREDENTIAL',
+          message: 'Não foi possível validar a autenticação com o Google.'
+        }
+      });
+    }
+
+    // Verificar autorização do e-mail (vindo exclusivamente do payload Google validado)
+    if (!isAdminEmail(googleUser.email)) {
+      return res.status(403).json({
+        error: {
+          code: 'EMAIL_NOT_AUTHORIZED',
+          message: 'Este e-mail não possui acesso ao sistema.'
+        }
+      });
+    }
+
+    // Gerar JWT interno somente após validação completa
     const sessionPayload: UserSessionPayload = {
-      userId: `usr-${googleUser.email}`,
+      userId: `usr-${googleUser.googleId}`,
       organizationId: 'org-festum-decor',
       email: googleUser.email,
       name: googleUser.name,
@@ -216,11 +251,17 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
       success: true,
       token: jwtToken,
       user: sessionPayload,
-      message: 'Autenticado com sucesso via Google OAuth'
+      message: 'Autenticado com sucesso via Google OAuth (verifyIdToken)'
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return res.status(401).json({ success: false, error: `Falha na autenticação: ${message}` });
+    console.error(`[AUTH] Erro inesperado: ${message}`);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_AUTH_ERROR',
+        message: 'Erro interno na autenticação.'
+      }
+    });
   }
 });
 
