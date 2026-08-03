@@ -6,6 +6,8 @@ import { StorageService } from './services/storage.js';
 import { SyncEngine } from './services/sync-engine.js';
 import { BatchPublisher } from './services/batch-publisher.js';
 import { apiFetch } from './services/api/api-client.js';
+import { AuthAPI } from './services/api/auth-api.js';
+import { AccountsAPI } from './services/api/accounts-api.js';
 
 export function showNotification(type = 'info', title = '', message = '', actionLabel = null, onAction = null) {
   const container = document.getElementById('toast-container');
@@ -70,24 +72,54 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function initApp() {
   currentSettings = await StorageService.getSettings();
-  currentAccounts = await StorageService.getAccounts();
   currentSkus = await StorageService.getSkus();
   currentLogs = await StorageService.getLogs();
 
-  await checkAuthSession();
+  const isAuthenticated = await checkAuthSession();
+  if (isAuthenticated) {
+    await refreshAccountsFromAPI();
+  }
   renderAllViews();
 }
 
-async function checkAuthSession() {
-  currentUser = await StorageService.getCurrentUser();
-  const authModal = document.getElementById('modal-auth-login');
-
-  if (currentUser && StorageService.isAdmin(currentUser.email)) {
-    updateUserProfileBadge(currentUser);
-    if (authModal) authModal.classList.remove('active');
-  } else {
-    if (authModal) authModal.classList.add('active');
+async function refreshAccountsFromAPI() {
+  try {
+    const res = await AccountsAPI.getAccounts();
+    if (res && res.accounts) {
+      currentAccounts = res.accounts;
+      await StorageService.setAccounts(res.accounts);
+    }
+  } catch (err) {
+    console.warn('⚠️ Falha ao carregar contas da API backend:', err.message);
+    currentAccounts = await StorageService.getAccounts();
   }
+}
+
+async function checkAuthSession() {
+  const authModal = document.getElementById('modal-auth-login');
+  const token = localStorage.getItem('lx_jwt_token');
+
+  if (!token) {
+    if (authModal) authModal.classList.add('active');
+    return false;
+  }
+
+  try {
+    const res = await AuthAPI.getCurrentUser();
+    if (res && res.user) {
+      currentUser = res.user;
+      updateUserProfileBadge(currentUser);
+      if (authModal) authModal.classList.remove('active');
+      return true;
+    }
+  } catch (err) {
+    console.warn('⚠️ Token inválido ou sessão expirada no backend:', err.message);
+    localStorage.removeItem('lx_jwt_token');
+    localStorage.removeItem('lx_auth_user');
+  }
+
+  if (authModal) authModal.classList.add('active');
+  return false;
 }
 
 function updateUserProfileBadge(user) {
@@ -731,49 +763,40 @@ function triggerRealGoogleSSO() {
   processGoogleAccountAuth(cleanEmail);
 }
 
-async function processGoogleAccountAuth(email, nameOverride = null, avatarOverride = null) {
+async function processGoogleAccountAuth(email) {
   const statusMsg = document.getElementById('auth-status-msg');
   if (!statusMsg) return;
 
-  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Verificando permissões de ${escapeHtml(email)} no Google SSO...</span>`;
+  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Autenticando ${escapeHtml(email)} no Backend LX Sync...</span>`;
 
-  setTimeout(async () => {
-    if (StorageService.isAdmin(email)) {
-      const name = nameOverride || email.split('@')[0].replace('.', ' ');
-      const formattedName = name.charAt(0).toUpperCase() + name.slice(1);
-      
-      const userObj = {
-        email: email,
-        name: formattedName,
-        role: 'Admin',
-        avatar: avatarOverride || `https://ui-avatars.com/api/?name=${encodeURIComponent(formattedName)}&background=EF4444&color=fff`,
-        loginTime: new Date().toISOString()
-      };
+  try {
+    const res = await AuthAPI.loginWithGoogle(email);
+    if (res && res.token) {
+      currentUser = res.user;
+      updateUserProfileBadge(currentUser);
+      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Administrador Autenticado! JWT gerado.</span>`;
+      showNotification('success', 'Sessão Conectada', `Bem-vindo, ${res.user.name || res.user.email}! Sessão autorizada no backend.`);
 
-      await StorageService.setCurrentUser(userObj);
-      currentUser = userObj;
-      updateUserProfileBadge(userObj);
-
-      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Administrador Identificado! Acesso Liberado.</span>`;
-      
-      setTimeout(() => {
+      setTimeout(async () => {
         const authModal = document.getElementById('modal-auth-login');
         if (authModal) authModal.classList.remove('active');
         statusMsg.innerHTML = '';
+        await refreshAccountsFromAPI();
+        renderAllViews();
       }, 500);
-
-    } else {
-      statusMsg.innerHTML = `<div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); padding: 14px; border-radius: 10px; color: #F87171; font-size: 12px; margin-top: 10px; text-align: center;">
-        🚨 <strong>ACESSO NEGADO</strong><br>
-        A conta Google <code>${escapeHtml(email)}</code> não está cadastrada como administradora.<br>
-        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Apenas as contas administradoras autorizadas possuem acesso a este painel.</span>
-      </div>`;
     }
-  }, 400);
+  } catch (err) {
+    statusMsg.innerHTML = `<div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); padding: 14px; border-radius: 10px; color: #F87171; font-size: 12px; margin-top: 10px; text-align: center;">
+      🚨 <strong>FALHA NA AUTENTICAÇÃO</strong><br>
+      ${escapeHtml(err.message)}
+    </div>`;
+    showNotification('error', 'Acesso Negado', err.message);
+  }
 }
 
 async function handleLogout() {
   if (confirm('Deseja realmente encerrar a sessão e sair?')) {
+    await AuthAPI.logout();
     await StorageService.logoutUser();
     currentUser = null;
     const authModal = document.getElementById('modal-auth-login');
