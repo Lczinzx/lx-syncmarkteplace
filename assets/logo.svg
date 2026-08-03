@@ -1,0 +1,32 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="120" fill="#0A090B"/>
+  <g filter="url(#glow)">
+    <!-- Store Awning Top Roof -->
+    <path d="M100 190L135 90H377L412 190V215C412 238 393 256 370 256C347 256 330 238 330 215C330 238 313 256 290 256C267 256 250 238 250 215C250 238 233 256 210 256C187 256 170 238 170 215C170 238 153 256 130 256C107 256 100 238 100 215V190Z" fill="#FF1E1E" stroke="#CC0000" stroke-width="8"/>
+    <!-- Stripes on Roof -->
+    <path d="M176 90L150 190" stroke="#0A090B" stroke-width="12" stroke-linecap="round"/>
+    <path d="M256 90L250 190" stroke="#0A090B" stroke-width="12" stroke-linecap="round"/>
+    <path d="M336 90L350 190" stroke="#0A090B" stroke-width="12" stroke-linecap="round"/>
+    <!-- Building Frame -->
+    <path d="M120 256V416C120 430 132 440 146 440H366C380 440 392 430 392 416V256" stroke="#FF1E1E" stroke-width="26" stroke-linecap="round" fill="none"/>
+    <!-- Bottom Base Line -->
+    <path d="M100 440H412" stroke="#FF1E1E" stroke-width="26" stroke-linecap="round"/>
+    <!-- Window with Shopping Cart -->
+    <rect x="154" y="284" width="124" height="124" rx="20" stroke="#FF1E1E" stroke-width="18" fill="none"/>
+    <!-- Shopping Cart Icon in Window -->
+    <path d="M176 316H192L204 364H250L260 330H200" stroke="#FF1E1E" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <circle cx="212" cy="382" r="9" fill="#FF1E1E"/>
+    <circle cx="242" cy="382" r="9" fill="#FF1E1E"/>
+    <!-- Doorway -->
+    <path d="M304 430V320C304 300 320 284 340 284C360 284 376 300 376 320V430H304Z" fill="#FF1E1E"/>
+  </g>
+  <defs>
+    <filter id="glow" x="60" y="50" width="392" height="420" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+</svg>

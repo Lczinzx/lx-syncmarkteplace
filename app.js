@@ -270,39 +270,41 @@ function renderAccountsGrid() {
   if (!container) return;
 
   if (currentAccounts.length === 0) {
-    container.innerHTML = `<div class="card" style="grid-column: 1/-1; text-align: center; padding: 30px;">Nenhuma conta conectada. Clique em "+ Conectar Nova Conta" para adicionar.</div>`;
+    container.innerHTML = `<div class="card" style="grid-column: 1/-1; text-align: center; padding: 40px; border-color: rgba(239, 68, 68, 0.2);">Nenhuma conta conectada. Clique em "+ Conectar Nova Conta" para adicionar.</div>`;
     return;
   }
 
   const platformBadges = {
-    meli: { badgeClass: 'meli-bg', borderClass: 'meli-border', label: 'ML', name: 'Mercado Livre' },
-    shopee: { badgeClass: 'shopee-bg', borderClass: 'shopee-border', label: 'SHP', name: 'Shopee' },
-    tiktok: { badgeClass: 'tiktok-bg', borderClass: 'tiktok-border', label: 'TT', name: 'TikTok Shop' },
-    amazon: { badgeClass: 'shopee-bg', borderClass: 'shopee-border', label: 'AMZ', name: 'Amazon BR' }
+    meli: { badgeClass: 'meli-bg', label: 'ML', name: 'Mercado Livre' },
+    shopee: { badgeClass: 'shopee-bg', label: 'SHP', name: 'Shopee' },
+    tiktok: { badgeClass: 'tiktok-bg', label: 'TT', name: 'TikTok Shop' },
+    amazon: { badgeClass: 'shopee-bg', label: 'AMZ', name: 'Amazon BR' }
   };
 
   container.innerHTML = currentAccounts.map(acc => {
-    const meta = platformBadges[acc.platform] || { badgeClass: 'meli-bg', borderClass: 'meli-border', label: 'MP', name: acc.platformName || acc.platform };
+    const meta = platformBadges[acc.platform] || { badgeClass: 'meli-bg', label: 'MP', name: acc.platformName || acc.platform };
     return `
       <div class="card channel-config-card">
-        <div class="channel-config-header ${meta.borderClass}">
-          <div class="channel-badge ${meta.badgeClass}">${meta.label}</div>
-          <div>
-            <h3>${escapeHtml(acc.sellerName || acc.name || meta.name)}</h3>
-            <p>${escapeHtml(meta.name)} • ID: <code>${escapeHtml(acc.sellerId || acc.shopId || acc.id)}</code></p>
+        <div class="channel-card-top">
+          <div class="channel-icon ${meta.badgeClass}" style="flex-shrink:0;">${meta.label}</div>
+          <div style="flex: 1; overflow: hidden;">
+            <h3 style="font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${escapeHtml(acc.sellerName || acc.name || meta.name)}</h3>
+            <p style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+              ${escapeHtml(meta.name)} • ID: <code class="code-tag">${escapeHtml(acc.sellerId || acc.shopId || acc.id)}</code>
+            </p>
           </div>
         </div>
-        <div class="card-body" style="padding-top: 14px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-            <span class="status-badge ${acc.connected ? 'synced' : 'critical'}">
+        <div style="padding-top: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.04);">
+            <span class="status-badge ${acc.connected ? 'synced' : 'critical'}" style="font-size: 10px; padding: 2px 8px;">
               ${acc.connected ? '● Ativa & Conectada' : '○ Desconectada'}
             </span>
-            <span style="font-size:11px; color:var(--text-muted);">Sync: ${formatTime(acc.lastSync)}</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Sync: ${formatTime(acc.lastSync)}</span>
           </div>
           <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary btn-sm btn-test-acc" data-id="${acc.id}" style="flex:1;">Testar Conexão</button>
-            <button class="btn btn-secondary btn-sm btn-edit-acc" data-id="${acc.id}">Editar</button>
-            <button class="btn btn-danger-outline btn-sm btn-delete-acc" data-id="${acc.id}">Excluir</button>
+            <button class="btn btn-secondary btn-sm btn-test-acc" data-id="${acc.id}" style="flex: 1; justify-content: center;">🧪 Testar</button>
+            <button class="btn btn-secondary btn-sm btn-edit-acc" data-id="${acc.id}">✏️ Editar</button>
+            <button class="btn btn-danger-outline btn-sm btn-delete-acc" data-id="${acc.id}">🗑️ Excluir</button>
           </div>
         </div>
       </div>
