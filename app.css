@@ -755,6 +755,32 @@ input:checked + .slider:before {
 
 .max-width-card { max-width: 680px; }
 
+/* Google Account Selector Card */
+.google-acc-option-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: #fff;
+}
+
+.google-acc-option-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.google-acc-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

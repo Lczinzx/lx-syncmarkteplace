@@ -431,7 +431,43 @@ function setupEventListeners() {
   if (btnExport) btnExport.addEventListener('click', exportLogsCsv);
 
   const btnGoogleLogin = document.getElementById('btn-google-login-simulated');
-  if (btnGoogleLogin) btnGoogleLogin.addEventListener('click', handleGoogleLoginSimulated);
+  if (btnGoogleLogin) {
+    btnGoogleLogin.addEventListener('click', () => {
+      const picker = document.getElementById('google-accounts-picker-modal');
+      if (picker) picker.classList.add('active');
+    });
+  }
+
+  const btnClosePicker = document.getElementById('close-google-picker');
+  if (btnClosePicker) {
+    btnClosePicker.addEventListener('click', () => {
+      const picker = document.getElementById('google-accounts-picker-modal');
+      if (picker) picker.classList.remove('active');
+    });
+  }
+
+  // Event Listeners nos botões de Contas do Google
+  document.querySelectorAll('.btn-select-google-acc').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const email = btn.dataset.email;
+      const name = btn.dataset.name;
+      const picker = document.getElementById('google-accounts-picker-modal');
+      if (picker) picker.classList.remove('active');
+      processGoogleAccountAuth(email, name);
+    });
+  });
+
+  const btnOtherAcc = document.getElementById('btn-google-other-account');
+  if (btnOtherAcc) {
+    btnOtherAcc.addEventListener('click', () => {
+      const picker = document.getElementById('google-accounts-picker-modal');
+      if (picker) picker.classList.remove('active');
+      const otherEmail = prompt("🌐 GOOGLE ACCOUNTS:\n\nDigite o e-mail da Conta do Google que deseja usar:");
+      if (otherEmail && otherEmail.trim()) {
+        processGoogleAccountAuth(otherEmail.trim());
+      }
+    });
+  }
 
   const btnLogout = document.getElementById('btn-logout');
   if (btnLogout) btnLogout.addEventListener('click', handleLogout);
@@ -447,37 +483,19 @@ function setupEventListeners() {
   }
 }
 
-async function handleGoogleLoginSimulated() {
+async function processGoogleAccountAuth(email, nameOverride = null) {
   const statusMsg = document.getElementById('auth-status-msg');
-  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Abrindo autenticação da Conta do Google...</span>`;
+  if (!statusMsg) return;
 
-  // Simula janela popup de login do Google (Google OAuth SSO Popup)
-  const userPrompt = prompt(
-    "🌐 GOOGLE ACCOUNTS - ENTRAR COM A CONTA DO GOOGLE:\n\nPor favor, informe o seu e-mail do Google para autenticação:",
-    "lucasoliveiradossantos008@gmail.com"
-  );
-
-  if (userPrompt === null) {
-    statusMsg.innerHTML = `<span style="color:var(--text-muted);">Autenticação cancelada pelo usuário.</span>`;
-    return;
-  }
-
-  const enteredEmail = userPrompt.trim();
-
-  if (!enteredEmail) {
-    statusMsg.innerHTML = `<span style="color:#F59E0B;">⚠️ Nenhum e-mail informado. Tente novamente.</span>`;
-    return;
-  }
-
-  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Verificando credenciais no Google SSO...</span>`;
+  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Autenticando ${escapeHtml(email)} no Google SSO...</span>`;
 
   setTimeout(async () => {
-    if (StorageService.isAdmin(enteredEmail)) {
-      const name = enteredEmail.split('@')[0].replace('.', ' ');
+    if (StorageService.isAdmin(email)) {
+      const name = nameOverride || email.split('@')[0].replace('.', ' ');
       const formattedName = name.charAt(0).toUpperCase() + name.slice(1);
       
       const userObj = {
-        email: enteredEmail,
+        email: email,
         name: formattedName,
         role: 'Admin',
         avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(formattedName)}&background=EF4444&color=fff`,
@@ -488,7 +506,7 @@ async function handleGoogleLoginSimulated() {
       currentUser = userObj;
       updateUserProfileBadge(userObj);
 
-      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Administrador Identificado! Acesso Liberado.</span>`;
+      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Administrador Autenticado! Acesso Liberado.</span>`;
       
       setTimeout(() => {
         const authModal = document.getElementById('modal-auth-login');
@@ -499,7 +517,7 @@ async function handleGoogleLoginSimulated() {
     } else {
       statusMsg.innerHTML = `<div style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); padding: 14px; border-radius: 10px; color: #F87171; font-size: 12px; margin-top: 10px; text-align: center;">
         🚨 <strong>ACESSO NEGADO</strong><br>
-        O e-mail <code>${escapeHtml(enteredEmail)}</code> não possui permissões de Administrador.<br>
+        O e-mail <code>${escapeHtml(email)}</code> não possui permissões de Administrador.<br>
         <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">Apenas contas administradoras possuem autorização de entrada na plataforma.</span>
       </div>`;
     }
