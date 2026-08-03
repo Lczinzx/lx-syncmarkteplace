@@ -166,6 +166,18 @@ export interface NormalizedMarketplaceError {
   rawError?: unknown;
 }
 
+export interface MarketplaceCapabilities {
+  canEditListingSku: boolean;
+  canEditVariationSku: boolean;
+  canEditTitle: boolean;
+  canEditStock: boolean;
+  canEditPrice: boolean;
+  canPauseListing: boolean;
+  canReactivateListing: boolean;
+  requiresListingRefreshAfterUpdate: boolean;
+  supportsIdempotencyKey: boolean;
+}
+
 export interface MarketplaceAdapter {
   connectAccount(): Promise<ConnectionResult>;
   refreshAccessToken(): Promise<TokenRefreshResult>;
@@ -188,5 +200,6 @@ export interface MarketplaceAdapter {
   createListing(params: CreateListingParams): Promise<MarketplaceCreateResult>;
 
   getRateLimitStatus(): Promise<RateLimitStatus>;
+  getCapabilities(): Promise<MarketplaceCapabilities>;
   normalizeError(error: unknown): NormalizedMarketplaceError;
 }

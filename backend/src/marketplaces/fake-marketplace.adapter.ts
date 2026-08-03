@@ -19,6 +19,7 @@ import {
   CreateListingParams,
   MarketplaceCreateResult,
   RateLimitStatus,
+  MarketplaceCapabilities,
   NormalizedMarketplaceError
 } from './marketplace-adapter.interface.js';
 
@@ -225,6 +226,20 @@ export class FakeMarketplaceAdapter implements MarketplaceAdapter {
     return {
       remainingRequests: 5000,
       resetInSeconds: 3600
+    };
+  }
+
+  async getCapabilities(): Promise<MarketplaceCapabilities> {
+    return {
+      canEditListingSku: true,
+      canEditVariationSku: true,
+      canEditTitle: true,
+      canEditStock: true,
+      canEditPrice: true,
+      canPauseListing: true,
+      canReactivateListing: true,
+      requiresListingRefreshAfterUpdate: true,
+      supportsIdempotencyKey: true
     };
   }
 

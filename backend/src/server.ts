@@ -11,13 +11,16 @@ import {
   decomposeSku,
   calculateMatchConfidence
 } from './services/matching.service.js';
+import { PreviewService, SelectionDefinition } from './services/preview.service.js';
+import { TransformationRule } from './services/transformation.service.js';
+import { SkuQueueService } from './jobs/sku-queue.service.js';
+import { RollbackService } from './services/rollback.service.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// CORS Restrito e Seguro
 const allowedOrigins = process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : ['http://localhost:5173', 'http://localhost:3000', 'https://lxsync.netlify.app'];
 
 app.use(cors({
@@ -37,7 +40,6 @@ interface AuthenticatedRequest extends Request {
   user?: UserSessionPayload;
 }
 
-// Middleware de Autenticação JWT
 function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -55,7 +57,7 @@ function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextF
   }
 }
 
-// In-Memory Database Store para desenvolvimento com persistência em lote
+// In-Memory Database Store
 const dbStore = {
   organizations: [
     { id: 'org-festum-decor', name: 'Festum Decor SaaS', slug: 'festum-decor', status: 'ACTIVE' }
@@ -175,37 +177,12 @@ const dbStore = {
       mappingsCount: 2
     }
   ],
-  mappings: [
-    {
-      id: 'map-1',
-      organizationId: 'org-festum-decor',
-      masterProductId: 'prod-zoologico-04',
-      marketplaceAccountId: 'acc-shopee-1',
-      marketplaceListingId: 'list-1',
-      marketplaceVariationId: 'var-1',
-      currentMarketplaceSku: 'Z - Red50 - Zoologico - 04',
-      confidenceScore: 1.0,
-      confirmedByUser: true
-    },
-    {
-      id: 'map-2',
-      organizationId: 'org-festum-decor',
-      masterProductId: 'prod-zoologico-04',
-      marketplaceAccountId: 'acc-meli-1',
-      marketplaceListingId: 'list-2',
-      marketplaceVariationId: 'var-3',
-      currentMarketplaceSku: 'Z-Red50-Zoologico-04',
-      confidenceScore: 0.96,
-      confirmedByUser: true
-    }
-  ],
-  importJobs: [] as Array<Record<string, unknown>>,
   skuJobs: [] as Array<Record<string, unknown>>,
   auditLogs: [] as Array<Record<string, unknown>>
 };
 
 /* ==========================================================================
-   ROTAS DE AUTENTICAÇÃO REAL (ETAPA 4 e 5)
+   ROTAS DE AUTENTICAÇÃO REAL (ETAPA 4)
    ========================================================================== */
 
 app.post('/api/auth/google', async (req: Request, res: Response) => {
@@ -235,23 +212,11 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
 
     const jwtToken = generateSessionJWT(sessionPayload);
 
-    // Registra Audit Log
-    dbStore.auditLogs.push({
-      id: `audit-${Date.now()}`,
-      organizationId: sessionPayload.organizationId,
-      userId: sessionPayload.userId,
-      action: 'USER_LOGIN',
-      resourceType: 'USER',
-      resourceId: sessionPayload.userId,
-      status: 'SUCCESS',
-      createdAt: new Date().toISOString()
-    });
-
     return res.json({
       success: true,
       token: jwtToken,
       user: sessionPayload,
-      message: 'Autenticado com sucesso via Google OAuth (Backend Validados)'
+      message: 'Autenticado com sucesso via Google OAuth'
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -263,23 +228,8 @@ app.get('/api/auth/me', authenticateToken, (req: AuthenticatedRequest, res: Resp
   return res.json({ success: true, user: req.user });
 });
 
-app.post('/api/auth/logout', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  dbStore.auditLogs.push({
-    id: `audit-${Date.now()}`,
-    organizationId: req.user!.organizationId,
-    userId: req.user!.userId,
-    action: 'USER_LOGOUT',
-    resourceType: 'USER',
-    resourceId: req.user!.userId,
-    status: 'SUCCESS',
-    createdAt: new Date().toISOString()
-  });
-
-  return res.json({ success: true, message: 'Sessão encerrada com sucesso.' });
-});
-
 /* ==========================================================================
-   ROTAS DE GERENCIAMENTO DE CONTAS (ETAPA 6)
+   ROTAS DE CONTAS E ADAPTER CAPABILITIES (ETAPA 8)
    ========================================================================== */
 
 app.get('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -292,60 +242,98 @@ app.get('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedReque
     status: acc.status,
     isDemo: acc.isDemo || false,
     lastSyncAt: acc.lastSyncAt,
-    lastImportAt: acc.lastImportAt,
-    accessTokenMasked: maskSensitiveValue(acc.accessTokenEncrypted)
+    lastImportAt: acc.lastImportAt
   }));
 
   return res.json({ success: true, accounts: safeAccounts });
 });
 
-app.post('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+app.get('/api/sku-changes/capabilities', authenticateToken, async (req: Request, res: Response) => {
+  const adapter = new FakeMarketplaceAdapter();
+  const caps = await adapter.getCapabilities();
+  return res.json({ success: true, capabilities: caps });
+});
+
+/* ==========================================================================
+   ROTAS DE PRÉ-VISUALIZAÇÃO & EXECUÇÃO EM LOTE DE SKUS (FASE 3 - ETAPAS 9 A 18)
+   ========================================================================== */
+
+app.post('/api/sku-changes/preview', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { marketplace, accountName, sellerId, shopId, apiKey } = req.body;
-    
-    if (!marketplace || !accountName) {
-      return res.status(400).json({ success: false, error: 'Campos marketplace e accountName são obrigatórios.' });
+    const { selection, rule } = req.body as { selection: SelectionDefinition; rule: TransformationRule };
+
+    if (!selection || !rule) {
+      return res.status(400).json({ success: false, error: 'Definição de seleção e regra de transformação são obrigatórias.' });
     }
 
-    const newAcc = {
-      id: `acc-${marketplace}-${Date.now()}`,
+    const preview = await PreviewService.generatePreview(
+      req.user!.organizationId,
+      selection,
+      rule,
+      dbStore.listings
+    );
+
+    return res.json({ success: true, preview });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/sku-changes/confirm', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { previewId, items } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'Nenhum item válido para alteração.' });
+    }
+
+    const jobId = `job-sku-${Date.now()}`;
+    const result = await SkuQueueService.processJob(jobId, req.user!.organizationId, items);
+
+    // Atualiza SKUs dos anúncios e variações no banco em memória
+    items.forEach(imp => {
+      dbStore.listings.forEach(l => {
+        if (l.externalListingId === imp.externalListingId) {
+          l.variations.forEach(v => {
+            if (v.externalVariationId === imp.externalVariationId) {
+              v.currentSku = imp.newSku;
+            }
+          });
+        }
+      });
+    });
+
+    const jobRecord = {
+      id: jobId,
       organizationId: req.user!.organizationId,
-      marketplace,
-      accountName,
-      sellerId: sellerId || `SELLER_${Date.now()}`,
-      shopId: shopId || `SHOP_${Date.now()}`,
-      status: 'CONNECTED',
-      isDemo: true, // Demonstração
-      accessTokenEncrypted: encryptSecret(apiKey || `mock_api_key_${Date.now()}`),
-      lastSyncAt: new Date().toISOString(),
-      lastImportAt: new Date().toISOString()
+      requestedBy: req.user!.email,
+      operationType: 'BULK_SKU_UPDATE',
+      status: result.status,
+      totalItems: result.totalItems,
+      successfulItems: result.successfulItems,
+      failedItems: result.failedItems,
+      items: result.items,
+      createdAt: new Date().toISOString()
     };
 
-    dbStore.accounts.push(newAcc);
+    dbStore.skuJobs.push(jobRecord);
 
     dbStore.auditLogs.push({
       id: `audit-${Date.now()}`,
       organizationId: req.user!.organizationId,
       userId: req.user!.userId,
-      action: 'CREATE_MARKETPLACE_ACCOUNT',
-      resourceType: 'MARKETPLACE_ACCOUNT',
-      resourceId: newAcc.id,
-      marketplace: newAcc.marketplace,
+      action: 'EXECUTE_BULK_SKU_UPDATE',
+      resourceType: 'SKU_CHANGE_JOB',
+      resourceId: jobId,
       status: 'SUCCESS',
       createdAt: new Date().toISOString()
     });
 
-    return res.status(201).json({
+    return res.json({
       success: true,
-      account: {
-        id: newAcc.id,
-        marketplace: newAcc.marketplace,
-        accountName: newAcc.accountName,
-        sellerId: newAcc.sellerId,
-        status: newAcc.status,
-        isDemo: true
-      },
-      message: 'Conta de demonstração cadastrada com sucesso no backend.'
+      job: jobRecord,
+      message: `[MODO DEMONSTRAÇÃO] Job ${jobId} concluído com sucesso (${result.successfulItems} SKUs atualizados).`
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -353,269 +341,75 @@ app.post('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedRequ
   }
 });
 
-app.post('/api/marketplace-accounts/:id/test', authenticateToken, async (req: Request, res: Response) => {
-  const acc = dbStore.accounts.find(a => a.id === req.params.id);
-  if (!acc) {
-    return res.status(404).json({ success: false, error: 'Conta de marketplace não encontrada.' });
+app.get('/api/sku-changes/jobs', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const orgJobs = dbStore.skuJobs.filter(j => j.organizationId === req.user!.organizationId);
+  return res.json({ success: true, jobs: orgJobs.reverse() });
+});
+
+app.get('/api/sku-changes/jobs/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const job = dbStore.skuJobs.find(j => j.id === req.params.id);
+  if (!job) {
+    return res.status(404).json({ success: false, error: 'Job de alteração não encontrado.' });
   }
+  return res.json({ success: true, job });
+});
 
-  const fakeAdapter = new FakeMarketplaceAdapter(acc.marketplace, acc.id);
-  const connResult = await fakeAdapter.connectAccount();
+app.post('/api/sku-changes/jobs/:id/pause', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const job = dbStore.skuJobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ success: false, error: 'Job não encontrado.' });
+  job.status = 'PAUSED';
+  return res.json({ success: true, job, message: 'Job pausado com sucesso.' });
+});
 
-  return res.json({
-    success: true,
-    result: connResult,
-    isDemo: true,
-    modeNotice: 'CONTA DE DEMONSTRAÇÃO — Operação simulada com FakeMarketplaceAdapter'
-  });
+app.post('/api/sku-changes/jobs/:id/resume', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const job = dbStore.skuJobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ success: false, error: 'Job não encontrado.' });
+  job.status = 'PROCESSING';
+  return res.json({ success: true, job, message: 'Job retomado com sucesso.' });
+});
+
+app.post('/api/sku-changes/jobs/:id/cancel', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const job = dbStore.skuJobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ success: false, error: 'Job não encontrado.' });
+  job.status = 'CANCELLED';
+  return res.json({ success: true, job, message: 'Job cancelado com sucesso.' });
 });
 
 /* ==========================================================================
-   ROTAS DE IMPORTAÇÃO IDEMPOTENTE (ETAPA 7)
+   ROTAS DE ROLLBACK E DESFAZER (ETAPA 18)
    ========================================================================== */
 
-app.post('/api/marketplace-accounts/:id/import', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  const acc = dbStore.accounts.find(a => a.id === req.params.id);
-  if (!acc) {
-    return res.status(404).json({ success: false, error: 'Conta não encontrada para importação.' });
+app.post('/api/sku-changes/jobs/:id/rollback-preview', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const job = dbStore.skuJobs.find(j => j.id === req.params.id) as any;
+  if (!job) {
+    return res.status(404).json({ success: false, error: 'Job original não encontrado para rollback.' });
   }
 
-  const jobSummary = await ImportService.executeImportJob(acc, req.user!.email);
-  dbStore.importJobs.push(jobSummary);
-  acc.lastImportAt = new Date().toISOString();
-
-  // Atualiza anúncios no repositório com idempotência
-  jobSummary.listings.forEach(imp => {
-    const existing = dbStore.listings.find(l => l.marketplaceAccountId === acc.id && l.externalListingId === imp.externalListingId);
-    if (!existing) {
-      dbStore.listings.push({
-        id: `list-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        organizationId: req.user!.organizationId,
-        marketplaceAccountId: acc.id,
-        marketplace: acc.marketplace,
-        accountName: acc.accountName,
-        externalListingId: imp.externalListingId,
-        title: imp.title,
-        imageUrl: imp.imageUrl || 'assets/logo.svg',
-        status: imp.status,
-        variations: imp.variations.map(v => ({
-          id: `var-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-          externalVariationId: v.externalVariationId,
-          variationName: v.variationName,
-          currentSku: v.currentSku,
-          price: v.price,
-          stock: v.stock,
-          status: v.status
-        }))
-      });
-    }
-  });
-
-  return res.json({
-    success: true,
-    job: jobSummary,
-    message: `Importação simulada da conta "${acc.accountName}" concluída com sucesso (${jobSummary.totalListings} anúncios e ${jobSummary.totalVariations} variações).`
-  });
+  const preview = RollbackService.generateRollbackPreview(job);
+  return res.json({ success: true, preview });
 });
 
-/* ==========================================================================
-   ROTAS DE ANÚNCIOS & BUSCA POR SKU NORMALIZADO (ETAPA 8 A 12)
-   ========================================================================== */
-
-app.get('/api/listings', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { accountId, marketplace, status, search } = req.query;
-
-  let filtered = dbStore.listings.filter(l => l.organizationId === req.user!.organizationId);
-
-  if (accountId) {
-    filtered = filtered.filter(l => l.marketplaceAccountId === accountId);
-  }
-  if (marketplace) {
-    filtered = filtered.filter(l => l.marketplace === marketplace);
-  }
-  if (status) {
-    filtered = filtered.filter(l => l.status === status);
-  }
-  if (search) {
-    const term = String(search).toLowerCase();
-    filtered = filtered.filter(l => 
-      l.title.toLowerCase().includes(term) ||
-      l.externalListingId.toLowerCase().includes(term) ||
-      l.variations.some(v => v.currentSku.toLowerCase().includes(term) || v.variationName.toLowerCase().includes(term))
-    );
+app.post('/api/sku-changes/jobs/:id/rollback-confirm', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const job = dbStore.skuJobs.find(j => j.id === req.params.id) as any;
+  if (!job) {
+    return res.status(404).json({ success: false, error: 'Job original não encontrado.' });
   }
 
-  return res.json({
-    success: true,
-    total: filtered.length,
-    listings: filtered
-  });
-});
+  const result = await RollbackService.confirmRollback(
+    req.user!.organizationId,
+    req.user!.email,
+    job
+  );
 
-app.post('/api/listings/search-by-skus', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { skus, matchMode = 'NORMALIZED' } = req.body;
+  dbStore.skuJobs.push(result);
 
-  if (!Array.isArray(skus) || skus.length === 0) {
-    return res.status(400).json({ success: false, error: 'Lista de SKUs é obrigatória.' });
-  }
-
-  const results: Array<Record<string, unknown>> = [];
-
-  skus.forEach(targetSku => {
-    const targetNorm = normalizeSkuForComparison(targetSku);
-
-    dbStore.listings.forEach(listing => {
-      listing.variations.forEach(v => {
-        const vNorm = normalizeSkuForComparison(v.currentSku);
-        let matches = false;
-
-        if (matchMode === 'EXACT') {
-          matches = v.currentSku === targetSku;
-        } else if (matchMode === 'CONTAINS') {
-          matches = v.currentSku.toLowerCase().includes(targetSku.toLowerCase());
-        } else {
-          // NORMALIZED
-          matches = vNorm === targetNorm;
-        }
-
-        if (matches) {
-          results.push({
-            listingId: listing.id,
-            externalListingId: listing.externalListingId,
-            listingTitle: listing.title,
-            marketplace: listing.marketplace,
-            accountName: listing.accountName,
-            variationId: v.id,
-            externalVariationId: v.externalVariationId,
-            variationName: v.variationName,
-            currentSku: v.currentSku,
-            normalizedSku: vNorm,
-            matchMode
-          });
-        }
-      });
-    });
-  });
-
-  return res.json({ success: true, matchesCount: results.length, results });
-});
-
-/* ==========================================================================
-   ROTAS DE PRODUTOS MESTRES & GRUPOS DE SINCRONIZAÇÃO (ETAPA 14)
-   ========================================================================== */
-
-app.get('/api/master-products', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  return res.json({ success: true, products: dbStore.masterProducts });
-});
-
-app.post('/api/master-products', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { name, masterSku, productType, theme, size, designCode, totalStock } = req.body;
-  
-  if (!name || !masterSku) {
-    return res.status(400).json({ success: false, error: 'Nome e SKU Master são obrigatórios.' });
-  }
-
-  const stockVal = Number(totalStock) || 0;
-  const newProduct = {
-    id: `prod-${Date.now()}`,
-    organizationId: req.user!.organizationId,
-    name,
-    masterSku,
-    productType: productType || 'Redondo',
-    size: size || 'Red50',
-    theme: theme || 'Geral',
-    designCode: designCode || '01',
-    status: 'ACTIVE',
-    inventory: { totalStock: stockVal, reservedStock: 0, safetyBuffer: 2, availableStock: Math.max(0, stockVal - 2) },
-    mappingsCount: 0
-  };
-
-  dbStore.masterProducts.push(newProduct);
-
-  dbStore.auditLogs.push({
-    id: `audit-${Date.now()}`,
-    organizationId: req.user!.organizationId,
-    userId: req.user!.userId,
-    action: 'CREATE_MASTER_PRODUCT',
-    resourceType: 'MASTER_PRODUCT',
-    resourceId: newProduct.id,
-    status: 'SUCCESS',
-    createdAt: new Date().toISOString()
-  });
-
-  return res.status(201).json({
-    success: true,
-    product: newProduct,
-    message: 'Produto Mestre criado com sucesso no backend.'
-  });
-});
-
-app.post('/api/product-mappings/suggestions', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { listingId, variationId } = req.body;
-
-  const listing = dbStore.listings.find(l => l.id === listingId);
-  if (!listing) {
-    return res.status(404).json({ success: false, error: 'Anúncio não encontrado.' });
-  }
-
-  const variation = listing.variations.find(v => v.id === variationId) || listing.variations[0];
-
-  const suggestions = dbStore.masterProducts.map(prod => {
-    const matchRes = calculateMatchConfidence(
-      { sku: variation.currentSku, title: listing.title },
-      { sku: prod.masterSku, title: prod.name, size: prod.size, theme: prod.theme, code: prod.designCode }
-    );
-
-    return {
-      masterProductId: prod.id,
-      masterProductName: prod.name,
-      masterSku: prod.masterSku,
-      confidenceScore: matchRes.confidenceScore,
-      matchLevel: matchRes.matchLevel,
-      compatibilities: matchRes.compatibilities,
-      divergences: matchRes.divergences,
-      reason: matchRes.reason
-    };
-  }).sort((a, b) => b.confidenceScore - a.confidenceScore);
-
-  return res.json({ success: true, listingId, variationId, suggestions });
-});
-
-/* ==========================================================================
-   ROTA DE AUDIT LOGS & DASHBOARD COM DADOS REAIS DA ORGANIZAÇÃO
-   ========================================================================== */
-
-app.get('/api/audit-logs', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  return res.json({ success: true, logs: dbStore.auditLogs.reverse() });
-});
-
-app.get('/api/dashboard', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const orgAccounts = dbStore.accounts.filter(a => a.organizationId === req.user!.organizationId);
-  const orgListings = dbStore.listings.filter(l => l.organizationId === req.user!.organizationId);
-  
-  let totalVars = 0;
-  orgListings.forEach(l => { totalVars += l.variations.length; });
-
-  return res.json({
-    success: true,
-    metrics: {
-      connectedAccounts: orgAccounts.length,
-      disconnectedAccounts: 0,
-      importedListings: orgListings.length,
-      importedVariations: totalVars,
-      masterProducts: dbStore.masterProducts.length,
-      mappedProducts: dbStore.mappings.length,
-      divergentSkus: 0,
-      pendingChanges: 0,
-      completedChanges: dbStore.importJobs.length
-    }
-  });
+  return res.json({ success: true, rollbackJob: result });
 });
 
 app.get('/health', (req: Request, res: Response) => {
-  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend REST API', time: new Date().toISOString() });
+  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend REST API (Fase 3)', time: new Date().toISOString() });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 LX Sync Backend Server rodando na porta ${PORT}`);
+  console.log(`🚀 LX Sync Backend Server (Fase 3) rodando na porta ${PORT}`);
 });
