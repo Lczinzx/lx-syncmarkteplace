@@ -7,8 +7,14 @@ const STORAGE_KEYS = {
   SKUS: 'lx_skus',
   ACCOUNTS: 'lx_accounts',
   SETTINGS: 'lx_settings',
-  LOGS: 'lx_logs'
+  LOGS: 'lx_logs',
+  AUTH_USER: 'lx_auth_user'
 };
+
+const ADMIN_EMAILS = [
+  'lucasoliveiradossantos008@gmail.com',
+  'festumcontato@gmail.com'
+];
 
 const DEFAULT_SETTINGS = {
   autoSyncEnabled: true,
@@ -377,5 +383,28 @@ export class StorageService {
   static async clearLogs() {
     await this.set(STORAGE_KEYS.LOGS, []);
     return true;
+  }
+
+  // --- Autenticação & Permissões Admin ---
+  static getAdminEmails() {
+    return ADMIN_EMAILS;
+  }
+
+  static isAdmin(email) {
+    if (!email) return false;
+    const cleanEmail = String(email).trim().toLowerCase();
+    return ADMIN_EMAILS.some(adminEmail => adminEmail.toLowerCase() === cleanEmail);
+  }
+
+  static async getCurrentUser() {
+    return await this.get(STORAGE_KEYS.AUTH_USER, null);
+  }
+
+  static async setCurrentUser(userObj) {
+    return await this.set(STORAGE_KEYS.AUTH_USER, userObj);
+  }
+
+  static async logoutUser() {
+    return await this.set(STORAGE_KEYS.AUTH_USER, null);
   }
 }

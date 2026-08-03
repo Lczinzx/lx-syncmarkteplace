@@ -10,6 +10,7 @@ let currentSkus = [];
 let currentLogs = [];
 let currentSettings = {};
 let currentAccounts = [];
+let currentUser = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initApp();
@@ -23,7 +24,34 @@ async function initApp() {
   currentSkus = await StorageService.getSkus();
   currentLogs = await StorageService.getLogs();
 
+  await checkAuthSession();
   renderAllViews();
+}
+
+async function checkAuthSession() {
+  currentUser = await StorageService.getCurrentUser();
+  const authModal = document.getElementById('modal-auth-login');
+
+  if (currentUser && StorageService.isAdmin(currentUser.email)) {
+    updateUserProfileBadge(currentUser);
+    if (authModal) authModal.classList.remove('active');
+  } else {
+    if (authModal) authModal.classList.add('active');
+  }
+}
+
+function updateUserProfileBadge(user) {
+  const badge = document.getElementById('user-profile-badge');
+  const nameElem = document.getElementById('user-name-display');
+  const emailElem = document.getElementById('user-email-display');
+  const avatarElem = document.getElementById('user-avatar');
+
+  if (user) {
+    if (nameElem) nameElem.textContent = user.name || 'Admin LX';
+    if (emailElem) emailElem.textContent = user.email;
+    if (avatarElem) avatarElem.src = user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'Admin')}&background=EF4444&color=fff`;
+    if (badge) badge.style.display = 'flex';
+  }
 }
 
 function renderAllViews() {
@@ -402,6 +430,12 @@ function setupEventListeners() {
   const btnExport = document.getElementById('btn-export-logs');
   if (btnExport) btnExport.addEventListener('click', exportLogsCsv);
 
+  const btnGoogleLogin = document.getElementById('btn-google-login-simulated');
+  if (btnGoogleLogin) btnGoogleLogin.addEventListener('click', handleGoogleLoginSimulated);
+
+  const btnLogout = document.getElementById('btn-logout');
+  if (btnLogout) btnLogout.addEventListener('click', handleLogout);
+
   const btnClearLogs = document.getElementById('btn-clear-logs');
   if (btnClearLogs) {
     btnClearLogs.addEventListener('click', async () => {
@@ -410,6 +444,55 @@ function setupEventListeners() {
         await refreshData();
       }
     });
+  }
+}
+
+async function handleGoogleLoginSimulated() {
+  const emailSelect = document.getElementById('login-admin-email-select');
+  const statusMsg = document.getElementById('auth-status-msg');
+  const selectedEmail = emailSelect.value.trim();
+
+  statusMsg.innerHTML = `<span style="color:#F59E0B;" class="spinning">🔄 Autenticando com o Google...</span>`;
+
+  setTimeout(async () => {
+    if (StorageService.isAdmin(selectedEmail)) {
+      const name = selectedEmail.split('@')[0].replace('.', ' ');
+      const formattedName = name.charAt(0).toUpperCase() + name.slice(1);
+      
+      const userObj = {
+        email: selectedEmail,
+        name: formattedName,
+        role: 'Admin',
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(formattedName)}&background=EF4444&color=fff`,
+        loginTime: new Date().toISOString()
+      };
+
+      await StorageService.setCurrentUser(userObj);
+      currentUser = userObj;
+      updateUserProfileBadge(userObj);
+
+      statusMsg.innerHTML = `<span style="color:#34D399; font-weight:700;">✅ Autenticado com sucesso como Administrador!</span>`;
+      
+      setTimeout(() => {
+        const authModal = document.getElementById('modal-auth-login');
+        if (authModal) authModal.classList.remove('active');
+        statusMsg.innerHTML = '';
+      }, 500);
+
+    } else {
+      statusMsg.innerHTML = `<span style="color:#F87171; font-weight:700;">❌ Acesso Negado: O e-mail <code>${escapeHtml(selectedEmail)}</code> não possui permissões de Administrador!</span>`;
+    }
+  }, 400);
+}
+
+async function handleLogout() {
+  if (confirm('Deseja realmente encerrar a sessão e sair?')) {
+    await StorageService.logoutUser();
+    currentUser = null;
+    const authModal = document.getElementById('modal-auth-login');
+    if (authModal) authModal.classList.add('active');
+    const statusMsg = document.getElementById('auth-status-msg');
+    if (statusMsg) statusMsg.innerHTML = `<span style="color:#F87171;">🚪 Sessão encerrada com sucesso.</span>`;
   }
 }
 
