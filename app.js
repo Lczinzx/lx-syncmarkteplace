@@ -270,7 +270,20 @@ function renderAccountsGrid() {
   if (!container) return;
 
   if (currentAccounts.length === 0) {
-    container.innerHTML = `<div class="card" style="grid-column: 1/-1; text-align: center; padding: 40px; border-color: rgba(239, 68, 68, 0.2);">Nenhuma conta conectada. Clique em "+ Conectar Nova Conta" para adicionar.</div>`;
+    container.innerHTML = `
+      <div class="card" style="grid-column: 1/-1; text-align: center; padding: 48px; border-color: rgba(239, 68, 68, 0.2);">
+        <div style="font-size: 32px; margin-bottom: 12px;">🔌</div>
+        <h3 style="font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 6px;">Nenhuma conta de marketplace conectada</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">Conecte sua primeira loja para sincronizar anúncios e SKUs.</p>
+        <button class="btn btn-primary" id="btn-add-first-account" style="padding: 10px 20px; font-weight: 700; border-radius: 10px;">
+          + Adicionar primeira conta
+        </button>
+      </div>`;
+
+    const btnFirstAcc = document.getElementById('btn-add-first-account');
+    if (btnFirstAcc) {
+      btnFirstAcc.addEventListener('click', () => openAccountModal());
+    }
     return;
   }
 
@@ -288,22 +301,27 @@ function renderAccountsGrid() {
         <div class="channel-card-top">
           <div class="channel-icon ${meta.badgeClass}" style="flex-shrink:0;">${meta.label}</div>
           <div style="flex: 1; overflow: hidden;">
-            <h3 style="font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${escapeHtml(acc.sellerName || acc.name || meta.name)}</h3>
-            <p style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+              <h3 style="font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">
+                ${escapeHtml(acc.accountName || acc.sellerName || acc.name || meta.name)}
+              </h3>
+              ${acc.isDemo || acc.isDemo !== false ? '<span style="background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.4); color: #FBBF24; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">CONTA DE DEMONSTRAÇÃO</span>' : ''}
+            </div>
+            <p style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin: 0;">
               ${escapeHtml(meta.name)} • ID: <code class="code-tag">${escapeHtml(acc.sellerId || acc.shopId || acc.id)}</code>
             </p>
           </div>
         </div>
         <div style="padding-top: 14px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.04);">
-            <span class="status-badge ${acc.connected ? 'synced' : 'critical'}" style="font-size: 10px; padding: 2px 8px;">
-              ${acc.connected ? '● Ativa & Conectada' : '○ Desconectada'}
+            <span class="status-badge ${acc.status === 'CONNECTED' || acc.connected ? 'synced' : 'critical'}" style="font-size: 10px; padding: 2px 8px;">
+              ● ${acc.status === 'CONNECTED' || acc.connected ? 'Ativa & Conectada' : 'Desconectada'}
             </span>
-            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Sync: ${formatTime(acc.lastSync)}</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Sync: ${formatTime(acc.lastSyncAt || acc.lastSync)}</span>
           </div>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary btn-sm btn-test-acc" data-id="${acc.id}" style="flex: 1; justify-content: center;">🧪 Testar</button>
-            <button class="btn btn-secondary btn-sm btn-edit-acc" data-id="${acc.id}">✏️ Editar</button>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm btn-import-acc" data-id="${acc.id}" style="flex: 1; justify-content: center;">📥 Importar Anúncios</button>
+            <button class="btn btn-secondary btn-sm btn-test-acc" data-id="${acc.id}">🧪 Testar</button>
             <button class="btn btn-danger-outline btn-sm btn-delete-acc" data-id="${acc.id}">🗑️ Excluir</button>
           </div>
         </div>
@@ -311,10 +329,35 @@ function renderAccountsGrid() {
     `;
   }).join('');
 
+  container.querySelectorAll('.btn-import-acc').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const acc = currentAccounts.find(a => a.id === btn.dataset.id);
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinning">🔄</span> Importando...`;
+      try {
+        const res = await fetch(`http://localhost:3001/api/marketplace-accounts/${btn.dataset.id}/import`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('lx_jwt_token') || ''}`
+          }
+        });
+        const data = await res.json();
+        alert(`✅ ${data.message || 'Importação realizada com sucesso!'}`);
+        await refreshData();
+      } catch (e) {
+        alert(`🚨 Falha ao importar anúncios: ${e.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `📥 Importar Anúncios`;
+      }
+    });
+  });
+
   container.querySelectorAll('.btn-test-acc').forEach(btn => {
     btn.addEventListener('click', () => {
       const acc = currentAccounts.find(a => a.id === btn.dataset.id);
-      alert(`✅ Conexão com ${acc ? (acc.sellerName || acc.name) : 'conta'} testada com sucesso! Status: Ativo.`);
+      alert(`✅ Conexão com ${acc ? (acc.accountName || acc.sellerName || acc.name) : 'conta'} testada com sucesso! Status: Ativo.`);
     });
   });
 

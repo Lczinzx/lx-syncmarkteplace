@@ -4,16 +4,35 @@ import dotenv from 'dotenv';
 import { verifyGoogleToken, generateSessionJWT, verifySessionJWT, isAdminEmail, UserSessionPayload } from './auth/google-auth.service.js';
 import { FakeMarketplaceAdapter } from './marketplaces/fake-marketplace.adapter.js';
 import { encryptSecret, maskSensitiveValue } from './utils/crypto.js';
+import { ImportService } from './services/import.service.js';
+import {
+  normalizeSkuForComparison,
+  normalizeListingTitleForComparison,
+  decomposeSku,
+  calculateMatchConfidence
+} from './services/matching.service.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: '*' }));
+// CORS Restrito e Seguro
+const allowedOrigins = process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : ['http://localhost:5173', 'http://localhost:3000', 'https://lxsync.netlify.app'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Bloqueado por regra de segurança CORS.'));
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json());
 
-// Extend Express Request type
 interface AuthenticatedRequest extends Request {
   user?: UserSessionPayload;
 }
@@ -36,7 +55,7 @@ function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextF
   }
 }
 
-// In-Memory Database Store para desenvolvimento de Fase 1
+// In-Memory Database Store para desenvolvimento com persistência em lote
 const dbStore = {
   organizations: [
     { id: 'org-festum-decor', name: 'Festum Decor SaaS', slug: 'festum-decor', status: 'ACTIVE' }
@@ -68,8 +87,10 @@ const dbStore = {
       sellerId: '2035668',
       shopId: '2035668',
       status: 'CONNECTED',
+      isDemo: true,
       accessTokenEncrypted: encryptSecret('mock_shopee_access_token_123'),
-      lastSyncAt: new Date().toISOString()
+      lastSyncAt: new Date().toISOString(),
+      lastImportAt: new Date().toISOString()
     },
     {
       id: 'acc-meli-1',
@@ -78,8 +99,65 @@ const dbStore = {
       accountName: 'Festum Decor - Mercado Livre',
       sellerId: 'MLB_SELLER_9876',
       status: 'CONNECTED',
+      isDemo: true,
       accessTokenEncrypted: encryptSecret('mock_meli_access_token_456'),
-      lastSyncAt: new Date().toISOString()
+      lastSyncAt: new Date().toISOString(),
+      lastImportAt: new Date().toISOString()
+    }
+  ],
+  listings: [
+    {
+      id: 'list-1',
+      organizationId: 'org-festum-decor',
+      marketplaceAccountId: 'acc-shopee-1',
+      marketplace: 'shopee',
+      accountName: 'Festum Decor - Shopee Oficial',
+      externalListingId: 'SHP-99887766',
+      title: 'Painel Redondo Zoologico 04 1.50m C/ Elastico',
+      imageUrl: 'assets/logo.svg',
+      status: 'ACTIVE',
+      variations: [
+        {
+          id: 'var-1',
+          externalVariationId: 'VAR_SHP_1',
+          variationName: 'Tamanho 1.50m (Redondo 50)',
+          currentSku: 'Z - Red50 - Zoologico - 04',
+          price: 89.90,
+          stock: 15,
+          status: 'ACTIVE'
+        },
+        {
+          id: 'var-2',
+          externalVariationId: 'VAR_SHP_2',
+          variationName: 'Tamanho 1.80m (Redondo 80)',
+          currentSku: 'Z - Red80 - Zoologico - 04',
+          price: 119.90,
+          stock: 8,
+          status: 'ACTIVE'
+        }
+      ]
+    },
+    {
+      id: 'list-2',
+      organizationId: 'org-festum-decor',
+      marketplaceAccountId: 'acc-meli-1',
+      marketplace: 'meli',
+      accountName: 'Festum Decor - Mercado Livre',
+      externalListingId: 'MLB-100200300',
+      title: 'Capa Painel Redondo Zoologico Estampa 04 Sublimado',
+      imageUrl: 'assets/logo.svg',
+      status: 'ACTIVE',
+      variations: [
+        {
+          id: 'var-3',
+          externalVariationId: 'VAR_MLB_1',
+          variationName: 'Redondo 50cm Zoologico 04',
+          currentSku: 'Z-Red50-Zoologico-04',
+          price: 94.90,
+          stock: 20,
+          status: 'ACTIVE'
+        }
+      ]
     }
   ],
   masterProducts: [
@@ -94,14 +172,40 @@ const dbStore = {
       designCode: '04',
       status: 'ACTIVE',
       inventory: { totalStock: 50, reservedStock: 0, safetyBuffer: 2, availableStock: 48 },
-      mappingsCount: 4
+      mappingsCount: 2
     }
   ],
-  jobs: [] as Array<Record<string, unknown>>
+  mappings: [
+    {
+      id: 'map-1',
+      organizationId: 'org-festum-decor',
+      masterProductId: 'prod-zoologico-04',
+      marketplaceAccountId: 'acc-shopee-1',
+      marketplaceListingId: 'list-1',
+      marketplaceVariationId: 'var-1',
+      currentMarketplaceSku: 'Z - Red50 - Zoologico - 04',
+      confidenceScore: 1.0,
+      confirmedByUser: true
+    },
+    {
+      id: 'map-2',
+      organizationId: 'org-festum-decor',
+      masterProductId: 'prod-zoologico-04',
+      marketplaceAccountId: 'acc-meli-1',
+      marketplaceListingId: 'list-2',
+      marketplaceVariationId: 'var-3',
+      currentMarketplaceSku: 'Z-Red50-Zoologico-04',
+      confidenceScore: 0.96,
+      confirmedByUser: true
+    }
+  ],
+  importJobs: [] as Array<Record<string, unknown>>,
+  skuJobs: [] as Array<Record<string, unknown>>,
+  auditLogs: [] as Array<Record<string, unknown>>
 };
 
 /* ==========================================================================
-   ROTAS DE AUTENTICAÇÃO REAL (ETAPA 4)
+   ROTAS DE AUTENTICAÇÃO REAL (ETAPA 4 e 5)
    ========================================================================== */
 
 app.post('/api/auth/google', async (req: Request, res: Response) => {
@@ -113,7 +217,6 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
 
     const googleUser = await verifyGoogleToken(token);
     
-    // Validação estrita de e-mail administrador no BACKEND
     if (!isAdminEmail(googleUser.email)) {
       return res.status(403).json({
         success: false,
@@ -132,11 +235,23 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
 
     const jwtToken = generateSessionJWT(sessionPayload);
 
+    // Registra Audit Log
+    dbStore.auditLogs.push({
+      id: `audit-${Date.now()}`,
+      organizationId: sessionPayload.organizationId,
+      userId: sessionPayload.userId,
+      action: 'USER_LOGIN',
+      resourceType: 'USER',
+      resourceId: sessionPayload.userId,
+      status: 'SUCCESS',
+      createdAt: new Date().toISOString()
+    });
+
     return res.json({
       success: true,
       token: jwtToken,
       user: sessionPayload,
-      message: 'Autenticado com sucesso via Google OAuth (Servidor Backend)'
+      message: 'Autenticado com sucesso via Google OAuth (Backend Validados)'
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -148,16 +263,26 @@ app.get('/api/auth/me', authenticateToken, (req: AuthenticatedRequest, res: Resp
   return res.json({ success: true, user: req.user });
 });
 
-app.post('/api/auth/logout', (req: Request, res: Response) => {
+app.post('/api/auth/logout', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  dbStore.auditLogs.push({
+    id: `audit-${Date.now()}`,
+    organizationId: req.user!.organizationId,
+    userId: req.user!.userId,
+    action: 'USER_LOGOUT',
+    resourceType: 'USER',
+    resourceId: req.user!.userId,
+    status: 'SUCCESS',
+    createdAt: new Date().toISOString()
+  });
+
   return res.json({ success: true, message: 'Sessão encerrada com sucesso.' });
 });
 
 /* ==========================================================================
-   ROTAS DE GERENCIAMENTO DE CONTAS & ADAPTERS (ETAPA 8)
+   ROTAS DE GERENCIAMENTO DE CONTAS (ETAPA 6)
    ========================================================================== */
 
 app.get('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  // Retorna contas SEM expor tokens ou segredos criptografados
   const safeAccounts = dbStore.accounts.map(acc => ({
     id: acc.id,
     marketplace: acc.marketplace,
@@ -165,7 +290,9 @@ app.get('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedReque
     sellerId: acc.sellerId,
     shopId: acc.shopId,
     status: acc.status,
+    isDemo: acc.isDemo || false,
     lastSyncAt: acc.lastSyncAt,
+    lastImportAt: acc.lastImportAt,
     accessTokenMasked: maskSensitiveValue(acc.accessTokenEncrypted)
   }));
 
@@ -188,12 +315,25 @@ app.post('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedRequ
       sellerId: sellerId || `SELLER_${Date.now()}`,
       shopId: shopId || `SHOP_${Date.now()}`,
       status: 'CONNECTED',
-      // Criptografia estrita dos tokens antes de persistir
+      isDemo: true, // Demonstração
       accessTokenEncrypted: encryptSecret(apiKey || `mock_api_key_${Date.now()}`),
-      lastSyncAt: new Date().toISOString()
+      lastSyncAt: new Date().toISOString(),
+      lastImportAt: new Date().toISOString()
     };
 
     dbStore.accounts.push(newAcc);
+
+    dbStore.auditLogs.push({
+      id: `audit-${Date.now()}`,
+      organizationId: req.user!.organizationId,
+      userId: req.user!.userId,
+      action: 'CREATE_MARKETPLACE_ACCOUNT',
+      resourceType: 'MARKETPLACE_ACCOUNT',
+      resourceId: newAcc.id,
+      marketplace: newAcc.marketplace,
+      status: 'SUCCESS',
+      createdAt: new Date().toISOString()
+    });
 
     return res.status(201).json({
       success: true,
@@ -202,9 +342,10 @@ app.post('/api/marketplace-accounts', authenticateToken, (req: AuthenticatedRequ
         marketplace: newAcc.marketplace,
         accountName: newAcc.accountName,
         sellerId: newAcc.sellerId,
-        status: newAcc.status
+        status: newAcc.status,
+        isDemo: true
       },
-      message: 'Conta conectada e token criptografado com sucesso no backend.'
+      message: 'Conta de demonstração cadastrada com sucesso no backend.'
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -224,13 +365,143 @@ app.post('/api/marketplace-accounts/:id/test', authenticateToken, async (req: Re
   return res.json({
     success: true,
     result: connResult,
-    isFakeAdapter: true,
-    modeNotice: 'MODO DEMONSTRAÇÃO — Teste executado com FakeMarketplaceAdapter'
+    isDemo: true,
+    modeNotice: 'CONTA DE DEMONSTRAÇÃO — Operação simulada com FakeMarketplaceAdapter'
   });
 });
 
 /* ==========================================================================
-   ROTAS DE PRODUTOS MESTRES (ETAPA 10)
+   ROTAS DE IMPORTAÇÃO IDEMPOTENTE (ETAPA 7)
+   ========================================================================== */
+
+app.post('/api/marketplace-accounts/:id/import', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const acc = dbStore.accounts.find(a => a.id === req.params.id);
+  if (!acc) {
+    return res.status(404).json({ success: false, error: 'Conta não encontrada para importação.' });
+  }
+
+  const jobSummary = await ImportService.executeImportJob(acc, req.user!.email);
+  dbStore.importJobs.push(jobSummary);
+  acc.lastImportAt = new Date().toISOString();
+
+  // Atualiza anúncios no repositório com idempotência
+  jobSummary.listings.forEach(imp => {
+    const existing = dbStore.listings.find(l => l.marketplaceAccountId === acc.id && l.externalListingId === imp.externalListingId);
+    if (!existing) {
+      dbStore.listings.push({
+        id: `list-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        organizationId: req.user!.organizationId,
+        marketplaceAccountId: acc.id,
+        marketplace: acc.marketplace,
+        accountName: acc.accountName,
+        externalListingId: imp.externalListingId,
+        title: imp.title,
+        imageUrl: imp.imageUrl || 'assets/logo.svg',
+        status: imp.status,
+        variations: imp.variations.map(v => ({
+          id: `var-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          externalVariationId: v.externalVariationId,
+          variationName: v.variationName,
+          currentSku: v.currentSku,
+          price: v.price,
+          stock: v.stock,
+          status: v.status
+        }))
+      });
+    }
+  });
+
+  return res.json({
+    success: true,
+    job: jobSummary,
+    message: `Importação simulada da conta "${acc.accountName}" concluída com sucesso (${jobSummary.totalListings} anúncios e ${jobSummary.totalVariations} variações).`
+  });
+});
+
+/* ==========================================================================
+   ROTAS DE ANÚNCIOS & BUSCA POR SKU NORMALIZADO (ETAPA 8 A 12)
+   ========================================================================== */
+
+app.get('/api/listings', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { accountId, marketplace, status, search } = req.query;
+
+  let filtered = dbStore.listings.filter(l => l.organizationId === req.user!.organizationId);
+
+  if (accountId) {
+    filtered = filtered.filter(l => l.marketplaceAccountId === accountId);
+  }
+  if (marketplace) {
+    filtered = filtered.filter(l => l.marketplace === marketplace);
+  }
+  if (status) {
+    filtered = filtered.filter(l => l.status === status);
+  }
+  if (search) {
+    const term = String(search).toLowerCase();
+    filtered = filtered.filter(l => 
+      l.title.toLowerCase().includes(term) ||
+      l.externalListingId.toLowerCase().includes(term) ||
+      l.variations.some(v => v.currentSku.toLowerCase().includes(term) || v.variationName.toLowerCase().includes(term))
+    );
+  }
+
+  return res.json({
+    success: true,
+    total: filtered.length,
+    listings: filtered
+  });
+});
+
+app.post('/api/listings/search-by-skus', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { skus, matchMode = 'NORMALIZED' } = req.body;
+
+  if (!Array.isArray(skus) || skus.length === 0) {
+    return res.status(400).json({ success: false, error: 'Lista de SKUs é obrigatória.' });
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+
+  skus.forEach(targetSku => {
+    const targetNorm = normalizeSkuForComparison(targetSku);
+
+    dbStore.listings.forEach(listing => {
+      listing.variations.forEach(v => {
+        const vNorm = normalizeSkuForComparison(v.currentSku);
+        let matches = false;
+
+        if (matchMode === 'EXACT') {
+          matches = v.currentSku === targetSku;
+        } else if (matchMode === 'CONTAINS') {
+          matches = v.currentSku.toLowerCase().includes(targetSku.toLowerCase());
+        } else {
+          // NORMALIZED
+          matches = vNorm === targetNorm;
+        }
+
+        if (matches) {
+          results.push({
+            listingId: listing.id,
+            externalListingId: listing.externalListingId,
+            listingTitle: listing.title,
+            marketplace: listing.marketplace,
+            accountName: listing.accountName,
+            variationId: v.id,
+            externalVariationId: v.externalVariationId,
+            variationName: v.variationName,
+            currentSku: v.currentSku,
+            normalizedSku: vNorm,
+            matchMode
+          });
+        }
+      });
+    });
+  });
+
+  return res.json({ success: true, matchesCount: results.length, results });
+});
+
+/* ==========================================================================
+   ROTAS DE PRODUTOS MESTRES & GRUPOS DE SINCRONIZAÇÃO (ETAPA 14)
    ========================================================================== */
 
 app.get('/api/master-products', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -261,6 +532,17 @@ app.post('/api/master-products', authenticateToken, (req: AuthenticatedRequest, 
 
   dbStore.masterProducts.push(newProduct);
 
+  dbStore.auditLogs.push({
+    id: `audit-${Date.now()}`,
+    organizationId: req.user!.organizationId,
+    userId: req.user!.userId,
+    action: 'CREATE_MASTER_PRODUCT',
+    resourceType: 'MASTER_PRODUCT',
+    resourceId: newProduct.id,
+    status: 'SUCCESS',
+    createdAt: new Date().toISOString()
+  });
+
   return res.status(201).json({
     success: true,
     product: newProduct,
@@ -268,147 +550,70 @@ app.post('/api/master-products', authenticateToken, (req: AuthenticatedRequest, 
   });
 });
 
-/* ==========================================================================
-   ROTAS DE PRÉVIA E ALTERAÇÃO EM LOTE DE SKUS (ETAPAS 12 A 16)
-   ========================================================================== */
+app.post('/api/product-mappings/suggestions', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { listingId, variationId } = req.body;
 
-app.post('/api/sku-changes/preview', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { masterProductId, newSku } = req.body;
-
-  if (!masterProductId || !newSku) {
-    return res.status(400).json({ success: false, error: 'masterProductId e newSku são obrigatórios.' });
+  const listing = dbStore.listings.find(l => l.id === listingId);
+  if (!listing) {
+    return res.status(404).json({ success: false, error: 'Anúncio não encontrado.' });
   }
 
-  const product = dbStore.masterProducts.find(p => p.id === masterProductId);
-  if (!product) {
-    return res.status(404).json({ success: false, error: 'Produto Mestre não encontrado.' });
-  }
+  const variation = listing.variations.find(v => v.id === variationId) || listing.variations[0];
 
-  const previewData = {
-    masterProductId,
-    masterProductName: product.name,
-    oldSku: product.masterSku,
-    newSku,
-    totalItems: 4,
-    validItems: 4,
-    blockedItems: 0,
-    conflicts: [],
-    affectedListings: [
-      {
-        marketplace: 'Shopee',
-        accountName: 'Festum Decor - Shopee Principal',
-        externalListingId: '123',
-        externalVariationId: '456',
-        variationName: 'Redondo 50cm Zoologico 04',
-        oldSku: product.masterSku,
-        newSku,
-        status: 'VALID'
-      },
-      {
-        marketplace: 'Shopee',
-        accountName: 'Festum Decor - Shopee Outlet',
-        externalListingId: '789',
-        externalVariationId: '222',
-        variationName: 'Redondo 50cm Zoologico 04',
-        oldSku: product.masterSku,
-        newSku,
-        status: 'VALID'
-      },
-      {
-        marketplace: 'Mercado Livre',
-        accountName: 'Festum Decor - Mercado Livre',
-        externalListingId: 'MLB123',
-        externalVariationId: '333',
-        variationName: 'Painel Redondo Zoologico 04',
-        oldSku: product.masterSku,
-        newSku,
-        status: 'VALID'
-      },
-      {
-        marketplace: 'TikTok Shop',
-        accountName: 'Festum Decor - TikTok Principal',
-        externalListingId: '987',
-        externalVariationId: '654',
-        variationName: 'Painel Zoologico 04',
-        oldSku: product.masterSku,
-        newSku,
-        status: 'VALID'
-      }
-    ]
-  };
+  const suggestions = dbStore.masterProducts.map(prod => {
+    const matchRes = calculateMatchConfidence(
+      { sku: variation.currentSku, title: listing.title },
+      { sku: prod.masterSku, title: prod.name, size: prod.size, theme: prod.theme, code: prod.designCode }
+    );
 
-  return res.json({ success: true, preview: previewData });
-});
+    return {
+      masterProductId: prod.id,
+      masterProductName: prod.name,
+      masterSku: prod.masterSku,
+      confidenceScore: matchRes.confidenceScore,
+      matchLevel: matchRes.matchLevel,
+      compatibilities: matchRes.compatibilities,
+      divergences: matchRes.divergences,
+      reason: matchRes.reason
+    };
+  }).sort((a, b) => b.confidenceScore - a.confidenceScore);
 
-app.post('/api/sku-changes/confirm', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  const { masterProductId, newSku } = req.body;
-
-  const product = dbStore.masterProducts.find(p => p.id === masterProductId);
-  if (!product) {
-    return res.status(404).json({ success: false, error: 'Produto Mestre não encontrado.' });
-  }
-
-  const jobId = `job-sku-${Date.now()}`;
-  const oldSku = product.masterSku;
-
-  // Processa lote usando FakeMarketplaceAdapter
-  const adapter = new FakeMarketplaceAdapter('MultiMarketplace', 'all-accs');
-  const updateRes = await adapter.updateListingSku({
-    externalListingId: 'MLB123',
-    oldSku,
-    newSku,
-    idempotencyKey: `idempotency_${jobId}`
-  });
-
-  product.masterSku = newSku;
-
-  const newJob = {
-    id: jobId,
-    organizationId: req.user!.organizationId,
-    requestedBy: req.user!.email,
-    operationType: 'BULK_SKU_UPDATE',
-    status: 'SUCCESS',
-    totalItems: 4,
-    successfulItems: 4,
-    failedItems: 0,
-    oldSku,
-    newSku,
-    details: updateRes.message,
-    completedAt: new Date().toISOString()
-  };
-
-  dbStore.jobs.push(newJob);
-
-  return res.json({
-    success: true,
-    job: newJob,
-    message: 'Lote de alteração de SKU executado e verificado com sucesso no backend.'
-  });
+  return res.json({ success: true, listingId, variationId, suggestions });
 });
 
 /* ==========================================================================
-   ROTA DE DASHBOARD (ETAPA 19)
+   ROTA DE AUDIT LOGS & DASHBOARD COM DADOS REAIS DA ORGANIZAÇÃO
    ========================================================================== */
+
+app.get('/api/audit-logs', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  return res.json({ success: true, logs: dbStore.auditLogs.reverse() });
+});
 
 app.get('/api/dashboard', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const orgAccounts = dbStore.accounts.filter(a => a.organizationId === req.user!.organizationId);
+  const orgListings = dbStore.listings.filter(l => l.organizationId === req.user!.organizationId);
+  
+  let totalVars = 0;
+  orgListings.forEach(l => { totalVars += l.variations.length; });
+
   return res.json({
     success: true,
     metrics: {
-      connectedAccounts: dbStore.accounts.length,
+      connectedAccounts: orgAccounts.length,
       disconnectedAccounts: 0,
-      importedListings: 128,
-      importedVariations: 342,
+      importedListings: orgListings.length,
+      importedVariations: totalVars,
       masterProducts: dbStore.masterProducts.length,
-      mappedProducts: dbStore.masterProducts.length,
+      mappedProducts: dbStore.mappings.length,
       divergentSkus: 0,
       pendingChanges: 0,
-      completedChanges: dbStore.jobs.length
+      completedChanges: dbStore.importJobs.length
     }
   });
 });
 
 app.get('/health', (req: Request, res: Response) => {
-  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend', time: new Date().toISOString() });
+  return res.json({ status: 'ONLINE', platform: 'LX Sync Backend REST API', time: new Date().toISOString() });
 });
 
 app.listen(PORT, () => {

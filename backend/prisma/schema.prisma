@@ -16,9 +16,13 @@ enum Role {
 
 enum AccountStatus {
   CONNECTED
-  EXPIRED
+  CONNECTION_PENDING
+  TOKEN_EXPIRED
+  AUTHENTICATION_ERROR
+  PERMISSION_ERROR
   DISCONNECTED
-  ERROR
+  DISABLED
+  DEMO
 }
 
 enum SkuJobStatus {
@@ -33,6 +37,15 @@ enum SkuJobStatus {
   CANCELLED
 }
 
+enum ImportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
 model Organization {
   id                  String               @id @default(uuid())
   name                String
@@ -42,6 +55,7 @@ model Organization {
   accounts            MarketplaceAccount[]
   masterProducts      MasterProduct[]
   skuChangeJobs       SkuChangeJob[]
+  importJobs          ImportJob[]
   auditLogs           AuditLog[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -77,16 +91,19 @@ model MarketplaceAccount {
   sellerId              String?
   shopId                String?
   status                AccountStatus        @default(CONNECTED)
+  isDemo                Boolean              @default(false)
   accessTokenEncrypted  String
   refreshTokenEncrypted String?
   tokenExpiresAt        DateTime?
   scopesJson            String?
   connectionMetadataJson String?
   lastSyncAt            DateTime?
+  lastImportAt          DateTime?
   organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listings              MarketplaceListing[]
   mappings              ProductMapping[]
   jobItems              SkuChangeJobItem[]
+  importJobs            ImportJob[]
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
@@ -107,7 +124,7 @@ model MarketplaceListing {
   description           String?
   imageUrl              String?
   categoryId            String?
-  status                String               @default("ACTIVE")
+  status                String               @default("ACTIVE") // ACTIVE, PAUSED, CLOSED
   listingUrl            String?
   rawDataJson           String?
   importedAt            DateTime             @default(now())
@@ -117,6 +134,7 @@ model MarketplaceListing {
   mappings              ProductMapping[]
   jobItems              SkuChangeJobItem[]
 
+  @@unique([marketplaceAccountId, externalListingId])
   @@index([organizationId])
   @@index([marketplaceAccountId])
   @@index([externalListingId])
@@ -142,6 +160,7 @@ model MarketplaceVariation {
   mappings              ProductMapping[]
   jobItems              SkuChangeJobItem[]
 
+  @@unique([marketplaceListingId, externalVariationId])
   @@index([organizationId])
   @@index([marketplaceListingId])
   @@index([externalVariationId])
@@ -184,6 +203,7 @@ model ProductMapping {
   mappingType             String               @default("MANUAL")
   confidenceScore         Float                @default(1.0)
   mappingMetadataJson     String?
+  confirmedByUser         Boolean              @default(true)
   lastSyncedAt            DateTime?
   masterProduct           MasterProduct        @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
   account                 MarketplaceAccount   @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
@@ -199,6 +219,48 @@ model ProductMapping {
   @@index([marketplaceListingId])
   @@index([marketplaceVariationId])
   @@map("product_mappings")
+}
+
+model ImportJob {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  marketplaceAccountId  String
+  requestedBy           String
+  status                ImportJobStatus      @default(PENDING)
+  totalListings         Int                  @default(0)
+  processedListings     Int                  @default(0)
+  totalVariations       Int                  @default(0)
+  processedVariations   Int                  @default(0)
+  createdListings       Int                  @default(0)
+  updatedListings       Int                  @default(0)
+  failedListings        Int                  @default(0)
+  errorMessage          String?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account               MarketplaceAccount   @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  errors                ImportJobError[]
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@index([marketplaceAccountId])
+  @@map("import_jobs")
+}
+
+model ImportJobError {
+  id                    String               @id @default(uuid())
+  importJobId           String
+  externalListingId     String?
+  externalVariationId   String?
+  errorCode             String
+  errorMessage          String
+  rawErrorJson          String?
+  importJob             ImportJob            @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  createdAt             DateTime             @default(now())
+
+  @@index([importJobId])
+  @@map("import_job_errors")
 }
 
 model SkuChangeJob {
