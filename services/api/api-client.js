@@ -1,13 +1,40 @@
 /**
  * API Client Base - LX Sync Marketplace Frontend
- * Gerencia todas as chamadas HTTP com o Backend Node.js / Express
+ * Validação rigorosa de VITE_API_URL e tratamento de erros
  */
 
-const BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
-  ? import.meta.env.VITE_API_URL
-  : 'http://localhost:3001';
+export function getApiBaseUrl() {
+  const envUrl = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_API_URL : null;
+
+  if (envUrl && envUrl.trim() !== '') {
+    // Clean trailing slashes
+    let cleaned = envUrl.trim().replace(/\/+$/, '');
+    
+    // Prevent HTTP calls when running on HTTPS frontend
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && cleaned.startsWith('http:')) {
+      console.warn('⚠️ Frontend em HTTPS detectado chamando API via HTTP. Bloqueado para prevenir Mixed Content.');
+    }
+    return cleaned;
+  }
+
+  // Se estiver em localhost no browser de dev
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    return 'http://localhost:3001';
+  }
+
+  // Em produção (Netlify/HTTPS), se VITE_API_URL não estiver configurado
+  return null;
+}
 
 export async function apiFetch(endpoint, options = {}) {
+  const baseUrl = getApiBaseUrl();
+
+  if (!baseUrl) {
+    const errorMsg = '⚠️ API do LX Sync não configurada neste ambiente (VITE_API_URL ausente). Por favor, configure VITE_API_URL nas variáveis do Netlify.';
+    console.error(`🚨 [API ERROR]: ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
   const token = localStorage.getItem('lx_jwt_token');
 
   const headers = {
@@ -25,15 +52,19 @@ export async function apiFetch(endpoint, options = {}) {
   };
 
   try {
-    const response = await fetch(`${BASE_URL}${endpoint}`, config);
+    const url = `${baseUrl}${endpoint}`;
+    console.log(`🌐 [API Request] ${config.method || 'GET'} ${url}`);
+
+    const response = await fetch(url, config);
 
     if (response.status === 401) {
-      // Sessão expirada ou não fornecida
       localStorage.removeItem('lx_jwt_token');
       localStorage.removeItem('lx_auth_user');
-      if (!window.location.pathname.includes('login')) {
-        console.warn('⚠️ Sessão expirada ou não fornecida. Redirecionando para login...');
-      }
+      throw new Error('Sua sessão expirou. Faça login novamente via Google.');
+    }
+
+    if (response.status === 403) {
+      throw new Error('Acesso negado: Você não possui permissões para realizar esta ação.');
     }
 
     const data = await response.json();
@@ -44,7 +75,10 @@ export async function apiFetch(endpoint, options = {}) {
 
     return data;
   } catch (err) {
-    console.error(`🚨 Erro na requisição API (${endpoint}):`, err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('Failed to fetch') || err.name === 'TypeError') {
+      throw new Error(`Servidor da API indisponível ou conexão bloqueada por CORS (${baseUrl}).`);
+    }
     throw err;
   }
 }

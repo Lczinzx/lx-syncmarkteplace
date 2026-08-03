@@ -28,176 +28,32 @@ const DEFAULT_SETTINGS = {
 
 const DEFAULT_ACCOUNTS = [
   {
-    id: 'acc-meli-1',
-    platform: 'meli',
-    platformName: 'Mercado Livre',
-    sellerId: 'ML-BR-892301',
-    sellerName: 'Loja Principal - Tech & Style',
-    connected: true,
-    status: 'active',
-    lastSync: new Date().toISOString(),
-    apiToken: 'APP_USR-7890123456-ML-MOCK-TOKEN-1'
-  },
-  {
-    id: 'acc-meli-2',
-    platform: 'meli',
-    platformName: 'Mercado Livre',
-    sellerId: 'ML-BR-441209',
-    sellerName: 'Loja Outlet - Tech Express',
-    connected: true,
-    status: 'active',
-    lastSync: new Date().toISOString(),
-    apiToken: 'APP_USR-9988-ML-MOCK-TOKEN-2'
-  },
-  {
     id: 'acc-shopee-1',
     platform: 'shopee',
     platformName: 'Shopee',
-    sellerId: 'SHP-992104',
-    sellerName: 'TechStyle Oficial Shopee',
+    sellerId: '2035668',
+    sellerName: 'Festum Decor - Shopee Oficial',
     connected: true,
     status: 'active',
-    lastSync: new Date().toISOString(),
-    shopId: '992104'
+    isDemo: true,
+    lastSync: new Date().toISOString()
   },
   {
-    id: 'acc-tiktok-1',
-    platform: 'tiktok',
-    platformName: 'TikTok Shop',
-    sellerId: 'TTS-441209',
-    sellerName: '@techstyle_oficial',
+    id: 'acc-meli-1',
+    platform: 'meli',
+    platformName: 'Mercado Livre',
+    sellerId: 'MLB_SELLER_9876',
+    sellerName: 'Festum Decor - Mercado Livre',
     connected: true,
     status: 'active',
-    lastSync: new Date().toISOString(),
-    appKey: 'tt_app_key_mock_456'
+    isDemo: true,
+    lastSync: new Date().toISOString()
   }
 ];
 
-const DEFAULT_SKUS = [
-  {
-    id: 'sku-001',
-    masterSku: 'FONE-BT-PRO-BLK',
-    name: 'Fone Bluetooth Pro Noise Cancelling - Preto',
-    category: 'Eletrônicos',
-    totalStock: 35,
-    reservedStock: 2,
-    availableStock: 33,
-    minStockAlert: 5,
-    unitPrice: 289.90,
-    status: 'synced',
-    updatedAt: new Date().toISOString(),
-    mappings: {
-      meli: { itemCode: 'MLB-399102931', title: 'Fone de Ouvido Bluetooth Sem Fio Noise Cancelling', stock: 33, active: true },
-      shopee: { itemCode: 'SHP-78192039', title: 'Fone Bluetooth Pro Esportivo Bass HD Preto', stock: 33, active: true },
-      tiktok: { itemCode: 'TT-4029104', title: 'Fone Bluetooth Premium Sem Fio Pro Black', stock: 33, active: true }
-    }
-  },
-  {
-    id: 'sku-002',
-    masterSku: 'CAMISA-OVER-WHT-L',
-    name: 'Camiseta Oversized Algodão Premium - Branca L',
-    category: 'Moda',
-    totalStock: 8,
-    reservedStock: 1,
-    availableStock: 7,
-    minStockAlert: 10,
-    unitPrice: 119.90,
-    status: 'warning', // alerta de estoque baixo
-    updatedAt: new Date().toISOString(),
-    mappings: {
-      meli: { itemCode: 'MLB-401928374', title: 'Camiseta Oversized Masculina Algodão Pima Branca G', stock: 7, active: true },
-      shopee: { itemCode: 'SHP-90182736', title: 'Camiseta Oversized Streetwear Algodão 100% Branca', stock: 7, active: true },
-      tiktok: { itemCode: 'TT-5519203', title: 'Camisa Oversized Premium Unisex Branca G', stock: 7, active: true }
-    }
-  },
-  {
-    id: 'sku-003',
-    masterSku: 'SMARTWATCH-ULTRA-S',
-    name: 'Smartwatch Series Ultra Amoled GPS - Prata',
-    category: 'Gadgets',
-    totalStock: 4,
-    reservedStock: 2,
-    availableStock: 2,
-    minStockAlert: 5,
-    unitPrice: 459.00,
-    status: 'critical',
-    updatedAt: new Date().toISOString(),
-    mappings: {
-      meli: { itemCode: 'MLB-559102834', title: 'Smartwatch Ultra Amoled GPS Original Nfe', stock: 2, active: true },
-      shopee: { itemCode: 'SHP-66192048', title: 'Relógio Smartwatch Ultra Prata GPS Esportivo', stock: 2, active: true },
-      tiktok: { itemCode: 'TT-9981029', title: 'Smartwatch Ultra Amoled Prata Original TikTok Trend', stock: 2, active: true }
-    }
-  },
-  {
-    id: 'sku-004',
-    masterSku: 'MOCHILA-EXEC-WATERPROOF',
-    name: 'Mochila Executiva Antifurto Impermeável',
-    category: 'Acessórios',
-    totalStock: 50,
-    reservedStock: 0,
-    availableStock: 50,
-    minStockAlert: 8,
-    unitPrice: 229.00,
-    status: 'synced',
-    updatedAt: new Date().toISOString(),
-    mappings: {
-      meli: { itemCode: 'MLB-882910394', title: 'Mochila Notebook Executiva Antifurto Impermeável USB', stock: 50, active: true },
-      shopee: { itemCode: 'SHP-12893049', title: 'Mochila Masculina Executiva Notebook Resistente Água', stock: 50, active: true },
-      tiktok: { itemCode: 'TT-7739201', title: 'Mochila Antifurto Impermeável com Trava e USB', stock: 50, active: true }
-    }
-  }
-];
+const DEFAULT_SKUS = [];
 
-const DEFAULT_LOGS = [
-  {
-    id: 'log-101',
-    timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    type: 'sync',
-    status: 'success',
-    masterSku: 'FONE-BT-PRO-BLK',
-    marketplace: 'Mercado Livre',
-    oldStock: 36,
-    newStock: 35,
-    trigger: 'venda_detectada',
-    message: 'Estoque reduzido de 36 para 35 devido a nova venda no Mercado Livre (Pedido #MLB-99210).'
-  },
-  {
-    id: 'log-102',
-    timestamp: new Date(Date.now() - 1000 * 60 * 11).toISOString(),
-    type: 'propagate',
-    status: 'success',
-    masterSku: 'FONE-BT-PRO-BLK',
-    marketplace: 'Shopee',
-    oldStock: 36,
-    newStock: 35,
-    trigger: 'auto_sync',
-    message: 'Estoque sincronizado com sucesso na Shopee para 35 un.'
-  },
-  {
-    id: 'log-103',
-    timestamp: new Date(Date.now() - 1000 * 60 * 11).toISOString(),
-    type: 'propagate',
-    status: 'success',
-    masterSku: 'FONE-BT-PRO-BLK',
-    marketplace: 'TikTok Shop',
-    oldStock: 36,
-    newStock: 35,
-    trigger: 'auto_sync',
-    message: 'Estoque sincronizado com sucesso no TikTok Shop para 35 un.'
-  },
-  {
-    id: 'log-104',
-    timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    type: 'safety_trigger',
-    status: 'warning',
-    masterSku: 'SMARTWATCH-ULTRA-S',
-    marketplace: 'Todos os canais',
-    oldStock: 4,
-    newStock: 2,
-    trigger: 'overselling_buffer',
-    message: 'Alerta de estoque crítico! Reserva de segurança de 2 unidades aplicada.'
-  }
-];
+const DEFAULT_LOGS = [];
 
 export class StorageService {
   /**

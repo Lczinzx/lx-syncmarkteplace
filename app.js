@@ -5,6 +5,7 @@
 import { StorageService } from './services/storage.js';
 import { SyncEngine } from './services/sync-engine.js';
 import { BatchPublisher } from './services/batch-publisher.js';
+import { apiFetch } from './services/api/api-client.js';
 
 let currentSkus = [];
 let currentLogs = [];
@@ -395,14 +396,9 @@ function renderAccountsGrid() {
       btn.disabled = true;
       btn.innerHTML = `<span class="spinning">🔄</span> Importando...`;
       try {
-        const res = await fetch(`http://localhost:3001/api/marketplace-accounts/${btn.dataset.id}/import`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('lx_jwt_token') || ''}`
-          }
+        const data = await apiFetch(`/api/marketplace-accounts/${btn.dataset.id}/import`, {
+          method: 'POST'
         });
-        const data = await res.json();
         alert(`✅ ${data.message || 'Importação realizada com sucesso!'}`);
         await refreshData();
       } catch (e) {
