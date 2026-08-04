@@ -69,6 +69,7 @@ let currentUser = null;
 let currentListings = [];
 let currentSubtab = 'grouped';
 let currentGroupedProducts = [];
+let currentUnlinkedListings = [];
 let currentPendingMatches = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -325,6 +326,7 @@ function setupSubtabsNavigation() {
 
       const titles = {
         grouped: { title: '📦 Produtos Agrupados (SyncGroup / MasterProduct)', sub: 'Anúncios equivalentes de diferentes marketplaces agrupados em um único produto central.' },
+        unlinked: { title: '🔓 Anúncios Não Vinculados', sub: 'Anúncios importados que ainda não possuem grupo mestre central vinculado.' },
         pending: { title: '🔍 Vínculos para Revisar (Pendências de Matching)', sub: 'Anúncios com média confiança (70% a 89%) aguardando confirmação humana.' },
         listings: { title: '🏷️ Anúncios por Canal (Visão Detalhada)', sub: 'Lista completa de anúncios persistidos por conta e marketplace.' }
       };
@@ -342,13 +344,7 @@ function setupSubtabsNavigation() {
 }
 
 function loadSkusSubtabData() {
-  if (currentSubtab === 'grouped') {
-    loadGroupedProducts();
-  } else if (currentSubtab === 'pending') {
-    loadPendingMatches();
-  } else {
-    loadMarketplaceListings();
-  }
+  loadGroupedProducts();
 }
 
 async function loadGroupedProducts() {
@@ -357,42 +353,113 @@ async function loadGroupedProducts() {
     container.innerHTML = `
       <div class="listings-loading" style="grid-column: 1 / -1; text-align: center; padding: 64px;">
         <div class="spinner" style="width: 48px; height: 48px; border: 4px solid rgba(167, 243, 208, 0.3); border-top-color: #A7F3D0; border-radius: 50%; margin: 0 auto 16px; animation: spin 1s linear infinite;"></div>
-        <p style="color: var(--text-muted); font-size: 16px;">Carregando produtos agrupados do servidor...</p>
+        <p style="color: var(--text-muted); font-size: 16px;">Carregando catálogo multicanal do servidor...</p>
       </div>
     `;
   }
 
   try {
     const res = await GroupsAPI.getGroupedProducts();
-    currentGroupedProducts = (res && res.groupedProducts) || [];
-    renderGroupedProducts();
-    await updatePendingMatchesBadge();
+    currentGroupedProducts = (res && (res.groups || res.groupedProducts)) || [];
+    currentUnlinkedListings = (res && res.unlinkedListings) || [];
+    currentPendingMatches = (res && (res.reviewSuggestions || res.pendingMatches)) || [];
+
+    if (res && res.summary) {
+      updateSummaryCardsFromSummary(res.summary);
+    } else {
+      updateSummaryCards();
+    }
+
+    updateSubtabBadges(res?.summary);
+
+    if (currentSubtab === 'grouped') {
+      renderGroupedProducts(res?.summary);
+    } else if (currentSubtab === 'unlinked') {
+      renderUnlinkedListings();
+    } else if (currentSubtab === 'pending') {
+      renderPendingMatches();
+    } else {
+      renderMarketplaceListings();
+    }
   } catch (err) {
-    currentGroupedProducts = [];
-    console.error('[GROUPS] Falha ao carregar produtos agrupados:', err.message);
-    if (container) {
-      container.innerHTML = `
-        <div class="listings-error" style="grid-column: 1 / -1; text-align: center; padding: 48px; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
-          <h3 style="color: #EF4444; margin-bottom: 12px;">❌ Não foi possível carregar os produtos agrupados</h3>
-          <p style="color: var(--text-muted); font-size: 14px;">${escapeHtml(err.message)}</p>
-          <button class="btn btn-secondary" style="margin-top: 16px;" onclick="window.loadGroupedProducts()">Tentar Novamente</button>
-        </div>
-      `;
+    console.warn('⚠️ [GROUPS FALLBACK] Falha ao chamar GET /api/product-groups. Acionando fallback para /api/marketplace-listings:', err.message);
+    try {
+      const res = await ListingsAPI.getListings();
+      currentListings = (res && res.listings) || [];
+      currentUnlinkedListings = currentListings;
+      updateSummaryCards();
+
+      if (container) {
+        if (currentSubtab === 'grouped') {
+          container.innerHTML = `
+            <div class="fallback-warning" style="grid-column: 1 / -1; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 12px; padding: 16px 20px; color: #FBBF24; margin-bottom: 16px;">
+              ⚠️ <strong>Serviço de Agrupamento Multicanal Indisponível:</strong> ${escapeHtml(err.message)}.<br>
+              <span style="font-size: 13px; color: #fff;">Exibindo os <strong>${currentListings.length} anúncios importados</strong> em modo de visualização direta por canal.</span>
+            </div>
+          `;
+          renderMarketplaceListingsDirectly(container);
+        } else if (currentSubtab === 'unlinked') {
+          renderUnlinkedListings();
+        } else if (currentSubtab === 'pending') {
+          renderPendingMatches();
+        } else {
+          renderMarketplaceListings();
+        }
+      }
+    } catch (fallbackErr) {
+      if (container) {
+        container.innerHTML = `
+          <div class="listings-error" style="grid-column: 1 / -1; text-align: center; padding: 48px; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
+            <h3 style="color: #EF4444; margin-bottom: 12px;">❌ Erro ao Conectar com o Servidor (HTTP 404 / Erro de Conexão)</h3>
+            <p style="color: var(--text-muted); font-size: 14px;">${escapeHtml(fallbackErr.message)}</p>
+            <button class="btn btn-secondary" style="margin-top: 16px;" onclick="window.loadGroupedProducts()">Tentar Novamente</button>
+          </div>
+        `;
+      }
     }
   }
 }
 
-function renderGroupedProducts(groupsToRender = currentGroupedProducts) {
+function updateSummaryCardsFromSummary(summary) {
+  if (!summary) return;
+  const elListings = document.getElementById('summary-total-listings');
+  const elVariations = document.getElementById('summary-total-variations');
+
+  if (elListings) elListings.textContent = summary.totalListings;
+  if (elVariations) elVariations.textContent = summary.totalVariations;
+
+  const badgeSku = document.getElementById('badge-sku-count');
+  if (badgeSku) badgeSku.textContent = summary.totalListings > 0 ? summary.totalListings : currentSkus.length;
+}
+
+function updateSubtabBadges(summary) {
+  const badgeUnlinked = document.getElementById('badge-unlinked-count');
+  if (badgeUnlinked) {
+    badgeUnlinked.textContent = summary ? summary.unlinkedListings : currentUnlinkedListings.length;
+  }
+  const badgePending = document.getElementById('badge-pending-matches-count');
+  if (badgePending) {
+    badgePending.textContent = summary ? summary.pendingReviews : currentPendingMatches.length;
+  }
+}
+
+function renderGroupedProducts(summary, groupsToRender = currentGroupedProducts) {
   const container = document.getElementById('marketplace-listings-container');
   if (!container) return;
 
   if (groupsToRender.length === 0) {
+    const unlinkedCount = summary ? summary.unlinkedListings : (currentUnlinkedListings.length || 50);
     container.innerHTML = `
-      <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: var(--bg-card); border-radius: 12px; border: 2px dashed var(--border-subtle);">
+      <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 48px; background: var(--bg-card); border-radius: 12px; border: 2px dashed var(--border-subtle);">
         <div style="font-size: 56px; margin-bottom: 16px;">📦</div>
-        <h3 style="color: var(--text-primary); margin-bottom: 8px;">Nenhum produto agrupado</h3>
-        <p style="color: var(--text-muted); margin-bottom: 24px;">Use "Importar Anúncios" em Canais & APIs ou clique em "Reanalisar Correspondências" para agrupar anúncios.</p>
-        <button class="btn btn-primary" onclick="document.querySelector('[data-tab=\\"channels\\"]').click()">Ir para Canais & APIs</button>
+        <h3 style="color: var(--text-primary); margin-bottom: 8px;">Nenhum produto agrupado no momento</h3>
+        <p style="color: var(--text-muted); margin-bottom: 20px;">
+          Você possui <strong>${unlinkedCount} anúncio(s) importado(s)</strong> disponíveis nas sub-abas "🔓 Anúncios não vinculados" ou "🏷️ Anúncios por Canal".
+        </p>
+        <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="window.handleRunRematch()">⚡ Reanalisar Correspondências Agora</button>
+          <button class="btn btn-secondary" onclick="document.getElementById('btn-subtab-unlinked').click()">Ver Anúncios Não Vinculados (${unlinkedCount})</button>
+        </div>
       </div>
     `;
     return;
@@ -517,6 +584,117 @@ function renderGroupedProducts(groupsToRender = currentGroupedProducts) {
       </article>
     `;
   }).join('');
+}
+
+function renderUnlinkedListings(unlinkedToRender = currentUnlinkedListings) {
+  const container = document.getElementById('marketplace-listings-container');
+  if (!container) return;
+
+  if (unlinkedToRender.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: var(--bg-card); border-radius: 12px; border: 2px dashed var(--border-subtle);">
+        <div style="font-size: 56px; margin-bottom: 16px;">✅</div>
+        <h3 style="color: #34D399; margin-bottom: 8px;">Todos os anúncios estão vinculados</h3>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">Não há anúncios sem grupo mestre no momento.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const counterEl = document.getElementById('listings-counter');
+  if (counterEl) {
+    counterEl.textContent = `${unlinkedToRender.length} anúncio(s) não vinculado(s)`;
+  }
+
+  const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4OCIgaGVpZ2h0PSI4OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIxMiIgZmlsbD0iIzE5MTIxNCIgc3Ryb2tlPSJyZ2JhKDIzOSwgNjgsIDY4LCAwLjMpIiBzdHJva2Utd2lkdGg9IjEiLz48dGV4dCB4PSI1MCUiIHk9IjQyJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI0VGNDQ0NCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSI8MDAiPkxYPC90ZXh0Pjx0ZXh0IHg9IjUwJSIgeT0iNjIlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOUNBM0FGIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSI5IiBmb250LXdlaWdodD0iNjAwIj5TeW5jPC90ZXh0Pjwvc3ZnPg==';
+
+  container.innerHTML = unlinkedToRender.map(listing => {
+    const isExpanded = expandedListings.has(listing.id);
+    const vCount = listing.variations?.length || 0;
+    const priceMin = listing.variations && listing.variations.length > 0 ? Math.min(...listing.variations.map(v => v.price || 0)) : 0;
+    const totalStock = listing.variations ? listing.variations.reduce((sum, v) => sum + (v.stock || 0), 0) : 0;
+
+    return `
+      <article class="announcement-card ${isExpanded ? 'expanded' : ''}">
+        <div class="card-header-wrapper">
+          <img src="${listing.imageUrl || placeholderSvg}" alt="${escapeHtml(listing.title)}" class="listing-main-image" onerror="this.onerror=null; this.src='${placeholderSvg}';">
+          <div class="card-header-info">
+            <div class="announcement-id-row">
+              <span class="badge ${listing.marketplace}">${escapeHtml((listing.marketplace || 'mp').toUpperCase())}</span>
+              <code class="external-id-badge">${escapeHtml(listing.externalListingId)}</code>
+            </div>
+            <h3 class="announcement-title">${escapeHtml(listing.title)}</h3>
+            <div class="announcement-meta-pills">
+              <span class="badge-account-name">${escapeHtml(listing.accountName)}</span>
+              <span class="status-chip ${listing.status === 'PAUSED' ? 'paused' : 'active'}">${listing.status}</span>
+              <span class="pill-mini shopee">Não Vinculado</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-metrics-grid">
+          <div class="metric-box">
+            <span class="metric-label">Preço Base</span>
+            <span class="metric-value price">R$ ${priceMin.toFixed(2)}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Estoque Total</span>
+            <span class="metric-value stock ${totalStock === 0 ? 'zero' : totalStock <= 2 ? 'low' : ''}">${totalStock} un</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Variações</span>
+            <span class="metric-value">${vCount} itens</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Vínculo</span>
+            <span class="metric-value sync">Pendente</span>
+          </div>
+        </div>
+
+        <div class="card-footer-actions">
+          <button class="btn btn-secondary btn-sm btn-toggle-variations" onclick="event.stopPropagation(); window.toggleListingExpansion('${escapeHtml(listing.id)}')">
+            <span class="variations-arrow ${isExpanded ? 'expanded' : ''}">▼</span>
+            ${isExpanded ? 'Ocultar variações' : 'Ver variações'} (${vCount})
+          </button>
+          <button class="btn btn-primary btn-sm btn-edit-announcement" onclick="event.stopPropagation(); window.handleRunRematch()">
+            ⚡ Reanalisar Correspondência
+          </button>
+        </div>
+
+        <div class="variations-section" id="variations-${escapeHtml(listing.id)}" style="${isExpanded ? 'display: block;' : 'display: none;'}">
+          <h4 style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 10px;">Variações do Anúncio:</h4>
+          <div class="variations-table-wrapper">
+            <table class="variations-table">
+              <thead>
+                <tr>
+                  <th>Variação</th>
+                  <th>SKU</th>
+                  <th>Preço</th>
+                  <th>Estoque</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(listing.variations || []).map(v => `
+                  <tr>
+                    <td>${escapeHtml(v.variationName)}</td>
+                    <td><code class="variation-sku">${escapeHtml(v.sku)}</code></td>
+                    <td style="color:#A7F3D0; font-weight:700;">R$ ${v.price.toFixed(2)}</td>
+                    <td>${v.stock} un</td>
+                    <td><span class="status-chip active">${v.status}</span></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function renderMarketplaceListingsDirectly(container) {
+  renderMarketplaceListings(currentListings);
 }
 
 async function loadPendingMatches() {

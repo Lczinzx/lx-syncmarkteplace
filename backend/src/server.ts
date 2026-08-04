@@ -500,8 +500,11 @@ app.get('/api/product-groups', authenticateToken, async (req: AuthenticatedReque
     const result = await GroupsService.listGroupedProducts(prisma, req.user!.organizationId, filters);
     return res.json({
       success: true,
-      groupedProducts: result.groupedProducts,
-      totalCount: result.totalCount
+      groups: result.groups,
+      groupedProducts: result.groups,
+      unlinkedListings: result.unlinkedListings,
+      reviewSuggestions: result.reviewSuggestions,
+      summary: result.summary
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -512,10 +515,10 @@ app.get('/api/product-groups', authenticateToken, async (req: AuthenticatedReque
   }
 });
 
-app.get('/api/product-groups/pending', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+app.get(['/api/product-groups/pending', '/api/product-groups/review-suggestions'], authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const pendingMatches = await GroupsService.getPendingMatches(prisma, req.user!.organizationId);
-    return res.json({ success: true, pendingMatches, totalPending: pendingMatches.length });
+    return res.json({ success: true, pendingMatches, reviewSuggestions: pendingMatches, totalPending: pendingMatches.length });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[GROUPS] Erro ao listar pendências de matching: ${message}`);
@@ -563,7 +566,11 @@ app.post('/api/product-groups/link', authenticateToken, async (req: Authenticate
 app.post('/api/product-groups/rematch', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await GroupsService.runRematching(prisma, req.user!.organizationId);
-    return res.json({ success: true, message: `Re-análise concluída: ${result.newMatchesFound} correspondência(s) encontrada(s).`, result });
+    return res.json({
+      success: true,
+      message: `Re-análise concluída: ${result.groupsCreated} grupo(s) criado(s), ${result.automaticLinks} vínculo(s) automático(s) e ${result.reviewSuggestions} sugestão(ões).`,
+      result
+    });
   } catch (err: unknown) {
     return res.status(500).json({ error: { code: 'REMATCH_FAILED', message: (err as Error).message } });
   }

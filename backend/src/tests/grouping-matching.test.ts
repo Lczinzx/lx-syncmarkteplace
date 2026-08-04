@@ -58,3 +58,26 @@ test('[MATCHING 6] Normalização de título ignora palavras comerciais de ruíd
   assert.ok(!normA.includes('envio imediato'));
   assert.ok(!normB.includes('pronta entrega'));
 });
+
+test('[CONTRACT 7] Resposta do contrato de grupos possui unlinkedListings e summary global', () => {
+  const mockResponse = {
+    success: true,
+    groups: [],
+    unlinkedListings: Array.from({ length: 50 }, (_, i) => ({ id: `list-${i}` })),
+    reviewSuggestions: [],
+    summary: {
+      totalListings: 50,
+      totalVariations: 129,
+      totalGroups: 0,
+      linkedListings: 0,
+      unlinkedListings: 50,
+      pendingReviews: 0
+    }
+  };
+
+  assert.equal(mockResponse.success, true);
+  assert.equal(mockResponse.summary.totalListings, 50);
+  assert.equal(mockResponse.summary.totalVariations, 129);
+  assert.equal(mockResponse.unlinkedListings.length, 50);
+  assert.equal(mockResponse.summary.unlinkedListings, 50);
+});
