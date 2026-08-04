@@ -304,13 +304,20 @@ function renderOverviewAccounts() {
 }
 
 /* ==========================================
-   TAB 2: SKUs MASTER & MAPEAMENTO
+   TAB 2: ANÚNCIOS IMPORTADOS (CARDS VISUAIS)
    ========================================== */
 
+let expandedListings = new Set();
+
 async function loadMarketplaceListings() {
-  const tbody = document.getElementById('marketplace-listings-body');
-  if (tbody) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color: var(--text-muted);">Carregando anúncios do servidor...</td></tr>`;
+  const container = document.getElementById('marketplace-listings-container');
+  if (container) {
+    container.innerHTML = `
+      <div class="listings-loading" style="grid-column: 1 / -1; text-align: center; padding: 64px;">
+        <div class="spinner" style="width: 48px; height: 48px; border: 4px solid rgba(167, 243, 208, 0.3); border-top-color: #A7F3D0; border-radius: 50%; margin: 0 auto 16px; animation: spin 1s linear infinite;"></div>
+        <p style="color: var(--text-muted); font-size: 16px;">Carregando anúncios do servidor...</p>
+      </div>
+    `;
   }
 
   try {
@@ -320,70 +327,221 @@ async function loadMarketplaceListings() {
   } catch (err) {
     currentListings = [];
     console.error('[LISTINGS] Falha ao carregar anúncios do backend:', err.message);
-    const tbodyEl = document.getElementById('marketplace-listings-body');
-    if (tbodyEl) {
-      tbodyEl.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color:#EF4444;">Não foi possível carregar os anúncios do servidor. (${escapeHtml(err.message)})</td></tr>`;
+    const containerEl = document.getElementById('marketplace-listings-container');
+    if (containerEl) {
+      containerEl.innerHTML = `
+        <div class="listings-error" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
+          <h3 style="color: #EF4444; margin-bottom: 12px;">❌ Não foi possível carregar os anúncios</h3>
+          <p style="color: var(--text-muted); font-size: 14px;">${escapeHtml(err.message)}</p>
+          <button class="btn btn-secondary" style="margin-top: 16px;" onclick="loadMarketplaceListings()">Tentar Novamente</button>
+        </div>
+      `;
     }
   }
 }
 
-function renderMarketplaceListings() {
-  const tbody = document.getElementById('marketplace-listings-body');
-  if (!tbody) return;
+function renderMarketplaceListings(listingsToRender = currentListings) {
+  const container = document.getElementById('marketplace-listings-container');
+  if (!container) return;
 
-  const totalListings = currentListings.length;
-  const totalVariations = currentListings.reduce((acc, l) => acc + (l.variations ? l.variations.length : 0), 0);
-
-  const counterEl = document.getElementById('listings-counter');
-  if (counterEl) {
-    counterEl.textContent = `${totalListings} anúncio(s) · ${totalVariations} variação(ões) importadas`;
-  }
-
-  if (totalListings === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px;">Nenhum anúncio importado ainda. Use "Importar Anúncios" em Canais & APIs.</td></tr>`;
+  if (listingsToRender.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: var(--bg-card); border-radius: 12px; border: 2px dashed var(--border-subtle);">
+        <div style="font-size: 56px; margin-bottom: 16px;">📦</div>
+        <h3 style="color: var(--text-primary); margin-bottom: 8px;">Nenhum anúncio encontrado</h3>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">Use "Importar Anúncios" em Canais & APIs ou limpe os filtros de busca.</p>
+        <button class="btn btn-primary" onclick="document.querySelector('[data-tab=\\"channels\\"]').click()">Ir para Canais & APIs</button>
+      </div>
+    `;
+    updateSummaryCards();
     return;
   }
 
-  tbody.innerHTML = currentListings.map(listing => {
+  updateSummaryCards();
+
+  container.innerHTML = listingsToRender.map(listing => {
     const account = listing.account || {};
     const variations = listing.variations || [];
-    const variationsHtml = variations.length === 0
-      ? '<span style="color:#64748B;">Sem variações</span>'
-      : variations.map(v => `
-        <div style="display:flex; justify-content:space-between; gap:10px; padding:4px 0; border-bottom:1px dashed rgba(148,163,184,0.15);">
-          <div style="min-width:0;">
-            <div style="font-size:12px; font-weight:600; color:#E2E8F0;">${escapeHtml(v.variationName)}</div>
-            <div style="font-size:11px; color:#94A3B8; font-family:monospace;">${escapeHtml(v.currentSku || '—')}</div>
-          </div>
-          <div style="text-align:right; flex-shrink:0;">
-            <div style="font-size:12px; color:#A7F3D0;">R$ ${Number(v.price || 0).toFixed(2)}</div>
-            <div style="font-size:11px; color:${Number(v.stock || 0) === 0 ? '#F87171' : Number(v.stock || 0) <= 2 ? '#FBBF24' : '#94A3B8'};">${v.stock} un</div>
-          </div>
-        </div>
-      `).join('');
+    const isExpanded = expandedListings.has(listing.id);
+    
+    const mainImageUrl = listing.imageUrl || `https://picsum.photos/seed/${listing.externalListingId}/360/360`;
+    const totalStock = variations.reduce((sum, v) => sum + (v.stock || 0), 0);
+    const priceMin = variations.length > 0 ? Math.min(...variations.map(v => v.price || 0)) : 0;
+    const priceMax = variations.length > 0 ? Math.max(...variations.map(v => v.price || 0)) : 0;
+    const priceRange = priceMin === priceMax ? `R$ ${priceMin.toFixed(2)}` : `R$ ${priceMin.toFixed(2)} - R$ ${priceMax.toFixed(2)}`;
+    const zeroStockCount = variations.filter(v => (v.stock || 0) === 0).length;
+    const lowStockCount = variations.filter(v => (v.stock || 0) > 0 && (v.stock || 0) <= 2).length;
+    const noSkuCount = variations.filter(v => !v.currentSku || v.currentSku.trim() === '').length;
+    const statusClass = listing.status === 'PAUSED' ? 'warning' : 'synced';
+    const statusIcon = listing.status === 'PAUSED' ? '⏸' : '✅';
+    const statusText = listing.status === 'PAUSED' ? 'PAUSADO' : 'ATIVO';
+
+    const variationRows = variations.map(v => {
+      const varImageUrl = v.imageUrl || `https://picsum.photos/seed/${listing.externalListingId}-${v.externalVariationId}/160/160`;
+      const stock = v.stock || 0;
+      const stockClass = stock === 0 ? 'stock-zero' : stock <= 2 ? 'stock-low' : 'stock-normal';
+      const stockText = stock === 0 ? 'SEM ESTOQUE' : stock <= 2 ? `BAIXO (${stock} un)` : `${stock} un`;
+      const skuText = v.currentSku && v.currentSku.trim() ? v.currentSku : '<span style="color:#EF4444;">Sem SKU</span>';
+      
+      return `
+        <tr class="variation-row" data-variation-id="${escapeHtml(v.id)}" onclick="event.stopPropagation(); openSkuEditModal('${escapeHtml(v.id)}')">
+          <td>
+            <img src="${varImageUrl}" alt="${escapeHtml(v.variationName)}" class="variation-image" 
+                 onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzk5OSIgZm9udC1zaXplPSIxMiI+TFggU3luYzwvdGV4dD48L3N2Zz4=';">
+          </td>
+          <td>
+            <div class="variation-name">${escapeHtml(v.variationName)}</div>
+          </td>
+          <td>
+            <code class="variation-sku">${skuText}</code>
+          </td>
+          <td>
+            <span style="color: #A7F3D0; font-weight: 600;">R$ ${Number(v.price || 0).toFixed(2)}</span>
+          </td>
+          <td>
+            <span class="stock-indicator ${stock === 0 ? 'stock-zero' : stock <= 2 ? 'stock-low' : 'stock-normal'}">${stockText}</span>
+          </td>
+          <td>
+            <span class="badge ${v.status === 'ACTIVE' ? 'synced' : 'warning'}">${v.status === 'ACTIVE' ? '✅' : '⏸'}</span>
+          </td>
+          <td style="text-align: right;">
+            <button class="btn-icon" onclick="event.stopPropagation(); openSkuEditModal('${escapeHtml(v.id)}')" title="Editar SKU" aria-label="Editar SKU">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
 
     return `
-      <tr>
-        <td style="min-width:220px;">
-          <div style="font-weight:700; color:#fff;">${escapeHtml(listing.title)}</div>
-          <div style="font-size:11px; color:#94A3B8;">${escapeHtml(listing.externalListingId)}</div>
-        </td>
-        <td>
-          <span class="pill-mini ${account.marketplace || 'meli'}">${escapeHtml((account.marketplace || 'mp').toUpperCase())}</span>
-          <div style="font-size:11px; color:#94A3B8; margin-top:4px;">${escapeHtml(account.accountName || '—')}</div>
-        </td>
-        <td>
-          <span class="status-badge ${listing.status === 'PAUSED' ? 'warning' : 'synced'}">${escapeHtml(listing.status || 'ACTIVE')}</span>
-        </td>
-        <td style="min-width:280px;">${variationsHtml}</td>
-        <td>${variations.reduce((acc, v) => acc + Number(v.stock || 0), 0)} un</td>
-        <td>${variations.length}</td>
-        <td>
-          ${listing.listingUrl ? `<a href="${escapeHtml(listing.listingUrl)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Abrir</a>` : '<span style="color:#64748B;">—</span>'}
-        </td>
-      </tr>
+      <article class="announcement-card" data-listing-id="${escapeHtml(listing.id)}">
+        <div class="card-main-header" onclick="toggleListingExpansion('${escapeHtml(listing.id)}')">
+          <div class="card-left">
+            <img src="${mainImageUrl}" alt="${escapeHtml(listing.title)}" class="listing-main-image" 
+                 onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MiIgaGVpZ2h0PSI3MiIgdmlld0JveD0iMCAwIDcyIDcyIj48cmVjdCB3aWR0aD0iNzIiIGhlaWdodD0iNzIiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzk5OSIgZm9udC1zaXplPSIxNCI+TFggU3luYzwvdGV4dD48L3N2Zz4=';">
+            <div class="card-info">
+              <h3 class="announcement-title">${escapeHtml(listing.title)}</h3>
+              <div class="announcement-meta">
+                <span class="badge-meta id">${escapeHtml(listing.externalListingId)}</span>
+                <span class="badge ${account.marketplace || 'meli'}">${escapeHtml((account.marketplace || 'mp').toUpperCase())}</span>
+                <span class="badge-meta account">${escapeHtml(account.accountName || '—')}</span>
+                <span class="status-badge ${listing.status === 'PAUSED' ? 'warning' : 'synced'}">${statusIcon} ${statusText}</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-right">
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="info-label">Faixa de Preço</span>
+                <span class="info-value">${priceRange}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Estoque Total</span>
+                <span class="info-value">${totalStock} un</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Variações</span>
+                <span class="info-value">${listing.variations?.length || 0}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Última Sync</span>
+                <span class="info-value">${new Date(listing.updatedAt).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'})}</span>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button class="btn-icon" onclick="event.stopPropagation(); toggleListingExpansion('${escapeHtml(listing.id)}')" aria-label="${isExpanded ? 'Ocultar variações' : 'Ver variações'}" title="${isExpanded ? 'Ocultar variações' : 'Ver variações'}">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s; ${expandedListings.has(listing.id) ? 'transform: rotate(180deg);' : ''}">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <button class="btn-icon" onclick="event.stopPropagation(); openEditAnnouncementModal('${escapeHtml(listing.id)}')" title="Editar Anúncio" aria-label="Editar Anúncio">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="variations-section" id="variations-${escapeHtml(listing.id)}" style="${expandedListings.has(listing.id) ? '' : 'display: none;'}">
+          <div class="variations-header" onclick="toggleListingExpansion('${escapeHtml(listing.id)}')">
+            <span class="variations-title">
+              <span class="variations-toggle ${expandedListings.has(listing.id) ? 'expanded' : ''}">▼</span>
+              Variações (${listing.variations?.length || 0})
+            </span>
+            <span class="variations-summary">
+              ${zeroStockCount > 0 ? `<span class="badge-meta stock-zero">⚠ ${zeroStockCount} sem estoque</span>` : ''}
+              ${lowStockCount > 0 ? `<span class="badge-meta stock-low">⚠ ${lowStockCount} estoque baixo</span>` : ''}
+              ${noSkuCount > 0 ? `<span class="badge-meta no-sku">⚠ ${noSkuCount} sem SKU</span>` : ''}
+            </span>
+          </span>
+          <div class="variations-table-wrapper">
+            <table class="variations-table">
+              <thead>
+                <tr>
+                  <th>Imagem</th>
+                  <th>Variação</th>
+                  <th>SKU</th>
+                  <th>Preço</th>
+                  <th>Estoque</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${variationRows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </article>
     `;
   }).join('');
+}
+
+function updateSummaryCards() {
+  const totalListings = currentListings.length;
+  const totalVariations = currentListings.reduce((sum, l) => sum + (l.variations?.length || 0), 0);
+  const active = currentListings.filter(l => l.status === 'ACTIVE').length;
+  const paused = currentListings.filter(l => l.status === 'PAUSED').length;
+  const zeroStock = currentListings.reduce((sum, l) => sum + (l.variations?.filter(v => (v.stock || 0) === 0).length || 0), 0);
+  const lowStock = currentListings.reduce((sum, l) => sum + (l.variations?.filter(v => (v.stock || 0) > 0 && (v.stock || 0) <= 2).length || 0), 0);
+  const noSku = currentListings.reduce((sum, l) => sum + (l.variations?.filter(v => !v.currentSku || v.currentSku.trim() === '').length || 0), 0);
+
+  const updates = {
+    'summary-total-listings': totalListings,
+    'summary-total-variations': totalVariations,
+    'summary-active': active,
+    'summary-paused': paused,
+    'summary-zero-stock': zeroStock,
+    'summary-low-stock': lowStock,
+    'summary-no-sku': noSku,
+  };
+
+  Object.entries(updates).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  });
+
+  const counterEl = document.getElementById('listings-counter');
+  if (counterEl) {
+    counterEl.textContent = `${totalListings} anúncio(s) · ${totalVariations} variação(ões)`;
+  }
+}
+
+function toggleListingExpansion(listingId) {
+  const section = document.getElementById(`variations-${listingId}`);
+  const card = document.querySelector(`[data-listing-id="${listingId}"]`);
+  if (section && card) {
+    const isExpanded = expandedListings.has(listingId);
+    if (isExpanded) {
+      expandedListings.delete(listingId);
+      section.style.display = 'none';
+      card.classList.remove('expanded');
+    } else {
+      expandedListings.add(listingId);
+      section.style.display = 'block';
+      card.classList.add('expanded');
+    }
+  }
 }
 
 function renderSkusTable(skusList) {
@@ -667,6 +825,25 @@ function setupEventListeners() {
         (s.category && s.category.toLowerCase().includes(term))
       );
       renderSkusTable(filtered);
+    });
+  }
+
+  const searchListingsInput = document.getElementById('search-listings-input');
+  if (searchListingsInput) {
+    searchListingsInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase().trim();
+      if (!term) {
+        renderMarketplaceListings(currentListings);
+        return;
+      }
+      const filtered = currentListings.filter(l => {
+        const titleMatch = (l.title || '').toLowerCase().includes(term);
+        const extIdMatch = (l.externalListingId || '').toLowerCase().includes(term);
+        const accMatch = (l.account?.accountName || '').toLowerCase().includes(term) || (l.account?.marketplace || '').toLowerCase().includes(term);
+        const skuMatch = l.variations?.some(v => (v.currentSku || '').toLowerCase().includes(term) || (v.variationName || '').toLowerCase().includes(term));
+        return titleMatch || extIdMatch || accMatch || skuMatch;
+      });
+      renderMarketplaceListings(filtered);
     });
   }
 

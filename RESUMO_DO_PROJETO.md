@@ -148,6 +148,17 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 **10. Testes executados:** Backend **61** (32 + grupo DEMO 21 + novo grupo Listagem **8**) + Fase 3 (OK) • Frontend 10/10 (OK) • `prisma validate`, `prisma generate`, `npm run build` (backend + frontend) OK.
 
+**10b. Estado Atual — Visual Overhaul (Fase 1) em Progresso:**
+- **Frontend**: Cards de anúncios substituindo a tabela antiga — cada card exibe imagem principal (72×72), título, ID externo, marketplace, conta, status, faixa de preço, estoque total, nº de variações, última sync, botões "Ver variações"/"Ocultar" e "Editar anúncio".
+- **Variações**: Inicialmente recolhidas; ao expandir, tabela com imagem 48×48, nome, SKU, preço, estoque (cores: verde=normal, amarelo=baixo, vermelho=zero), status e botão "Editar SKU".
+- **Cards de Resumo** no topo: 7 métricas em tempo real (Anúncios, Variações, Ativos, Pausados, Sem Estoque, Estoque Baixo, Sem SKU).
+- **Contador Lateral** "Anúncios & SKUs" agora mostra `X anúncios · Y variações` reais do PostgreSQL.
+- **Layout Responsivo**: Grid `auto-fill minmax(380px, 1fr)` com breakpoints 900px/768px/640px; tabela de variações vira cards em mobile.
+- **Busca/Filtro**: Input "Buscar por título, SKU, conta..." + botão "Atualizar".
+- **Placeholders LX Sync**: Imagens quebradas caem para placeholder SVG inline (base64) com logo LX Sync — nunca imagem quebrada.
+- **CSS Pendente**: Estilos dos cards (`.announcement-card`, `.listings-grid`, `.summary-card`, `.stock-*`, `.variations-section`, `.variation-image`, loading/error states) a serem adicionados em `app.css`.
+- **Backend**: `GET /api/marketplace-listings` (Bearer JWT) → `listMarketplaceListings()` retorna 50 anúncios / 129 variações com `imageUrl` nas variações (demo images via `picsum.photos/seed/`).
+
 **11. Migrations PostgreSQL (Prisma Migrate):**
 - A pasta `backend/prisma/migrations` **não existia** antes (por isso o erro P2021 em produção).
 - Migration inicial criada a partir do schema atual **sem tocar no banco de produção**: `backend/prisma/migrations/20260803000000_init/migration.sql` (gerada offline via `prisma migrate diff --from-empty --to-schema-datamodel`), acompanhada de `migration_lock.toml` (provider `postgresql`).
@@ -157,8 +168,37 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 - **Tratamento P2021**: erros de tabela inexistente (P2021/P2024/P2010/P1001) retornam ao cliente a mensagem amigável *"O banco de dados ainda não foi inicializado. Aplique as migrations antes de continuar."* — sem vazar detalhes internos do banco (detalhes reais ficam nos logs do servidor).
 
 ---
+177:
 
-## 🛠️ Arquitetura e Deploy
+## 📋 Status Atual do Projeto
+
+### ✅ **Completo (Backend + Core Frontend)**
+- Autenticação Google OAuth + JWT + RBAC
+- Múltiplas contas por marketplace (API única)
+- Publicador Multi-Post (Drag & Drop + Progresso)
+- Importação idempotente com FakeMarketplaceAdapter
+- Dataset DEMO: 50 anúncios / 129 variações (SKUs Festum realistas)
+- Importação idempotente + MatchingService + PreviewService
+- Fila SKU assíncrona + Rollback/Desfazer
+- Logs Auditoria + Export CSV
+- Testes: 71 passing (61 backend + 10 frontend)
+- CORS + P2021 handling + Health checks
+- Deploy Render + Netlify configurados
+
+### ✅ **Visual Overhaul (Fase 1) — Concluído**
+- [x] `index.html` — Container de cards + cards de resumo + busca/refresh
+- [x] `app.js` — `loadMarketplaceListings()` + `renderMarketplaceListings()` (cards + expand/collapse + busca em tempo real)
+- [x] `app.css` — Estilos de cards, grid, badges, indicadores de estoque, variações e suporte responsivo
+- [x] Build + Testes (10/10 frontend, 65 backend)
+
+### 📋 **Próximas Fases (Planejadas)**
+| Fase | Entregável | Status |
+|------|------------|--------|
+| **Fase 1** | Cards visuais completos + CSS | ✅ **Concluído** |
+| **Fase 2** | Modal editar SKU (preview ANTES/DEPOIS + escopo) + Modal editar anúncio (abas Info/Imagens/Var/Histórico) + Integração SkuQueueService/PreviewService/RollbackService | 🔄 **PRÓXIMO** |
+| **Fase 3** | Schema Prisma (`imageUrl`, `imagesJson`) + Migration oficial + Persistência imagens no ImportService + Imagens DEMO consistentes | ⏳ Aguarda Fase 2 |
+
+---
 
 - **Frontend Netlify (Web App SaaS 24/7)**: [lxsync.netlify.app](https://lxsync.netlify.app/) — env var **`VITE_GOOGLE_CLIENT_ID`** (mesmo Client ID do backend) e `VITE_API_URL=https://lx-sync-api.onrender.com`.
 - **Backend API Node.js / Express (Render)**: [lx-sync-api.onrender.com](https://lx-sync-api.onrender.com/) — REST API com CORS restrito por `FRONTEND_URL`, Prisma ORM e PostgreSQL.
