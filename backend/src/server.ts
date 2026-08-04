@@ -27,6 +27,7 @@ import { TransformationRule } from './services/transformation.service.js';
 import { SkuQueueService } from './jobs/sku-queue.service.js';
 import { RollbackService } from './services/rollback.service.js';
 import { listMarketplaceListings } from './services/listings.service.js';
+import { GroupsService } from './services/groups.service.js';
 
 dotenv.config();
 
@@ -482,6 +483,89 @@ app.get('/api/marketplace-listings', authenticateToken, async (req: Authenticate
         message: toFriendlyDbErrorMessage(err, 'Não foi possível carregar os anúncios do servidor.')
       }
     });
+  }
+});
+
+/* ==========================================================================
+   ROTAS DE GRUPOS DE PRODUTOS & MATCHING MULTICANAL
+   ========================================================================== */
+
+app.get('/api/product-groups', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const filters = {
+      search: req.query.search as string | undefined,
+      marketplace: req.query.marketplace as string | undefined,
+      status: req.query.status as string | undefined
+    };
+    const result = await GroupsService.listGroupedProducts(prisma, req.user!.organizationId, filters);
+    return res.json({
+      success: true,
+      groupedProducts: result.groupedProducts,
+      totalCount: result.totalCount
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[GROUPS] Erro ao listar produtos agrupados: ${message}`);
+    return res.status(500).json({
+      error: { code: 'GROUPS_FETCH_FAILED', message: toFriendlyDbErrorMessage(err, 'Não foi possível listar os grupos de produtos.') }
+    });
+  }
+});
+
+app.get('/api/product-groups/pending', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pendingMatches = await GroupsService.getPendingMatches(prisma, req.user!.organizationId);
+    return res.json({ success: true, pendingMatches, totalPending: pendingMatches.length });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[GROUPS] Erro ao listar pendências de matching: ${message}`);
+    return res.status(500).json({
+      error: { code: 'PENDING_MATCHES_FAILED', message: toFriendlyDbErrorMessage(err, 'Não foi possível buscar pendências de matching.') }
+    });
+  }
+});
+
+app.post('/api/product-groups/confirm-match', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { mappingId } = req.body;
+    if (!mappingId) return res.status(400).json({ error: { code: 'MAPPING_ID_REQUIRED', message: 'mappingId é obrigatório.' } });
+    await GroupsService.confirmMapping(prisma, mappingId);
+    return res.json({ success: true, message: 'Vínculo confirmado com sucesso.' });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: { code: 'CONFIRM_MATCH_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.post('/api/product-groups/reject-match', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { mappingId } = req.body;
+    if (!mappingId) return res.status(400).json({ error: { code: 'MAPPING_ID_REQUIRED', message: 'mappingId é obrigatório.' } });
+    await GroupsService.rejectMapping(prisma, mappingId);
+    return res.json({ success: true, message: 'Vínculo rejeitado com sucesso.' });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: { code: 'REJECT_MATCH_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.post('/api/product-groups/link', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { masterProductId, marketplaceListingId } = req.body;
+    if (!masterProductId || !marketplaceListingId) {
+      return res.status(400).json({ error: { code: 'PARAMS_REQUIRED', message: 'masterProductId e marketplaceListingId são obrigatórios.' } });
+    }
+    await GroupsService.linkListing(prisma, req.user!.organizationId, masterProductId, marketplaceListingId);
+    return res.json({ success: true, message: 'Anúncio vinculado manualmente ao produto mestre.' });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: { code: 'LINK_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.post('/api/product-groups/rematch', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await GroupsService.runRematching(prisma, req.user!.organizationId);
+    return res.json({ success: true, message: `Re-análise concluída: ${result.newMatchesFound} correspondência(s) encontrada(s).`, result });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: { code: 'REMATCH_FAILED', message: (err as Error).message } });
   }
 });
 

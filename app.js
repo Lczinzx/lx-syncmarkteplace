@@ -9,6 +9,7 @@ import { apiFetch } from './services/api/api-client.js';
 import { AuthAPI } from './services/api/auth-api.js';
 import { AccountsAPI } from './services/api/accounts-api.js';
 import { ListingsAPI } from './services/api/listings-api.js';
+import { GroupsAPI } from './services/api/groups-api.js';
 import { extractAccountsFromResponse, normalizeAccountsFromApi, isAccountNotFoundError } from './services/account-source.js';
 
 export function showNotification(type = 'info', title = '', message = '', actionLabel = null, onAction = null) {
@@ -66,10 +67,14 @@ let currentSettings = {};
 let currentAccounts = [];
 let currentUser = null;
 let currentListings = [];
+let currentSubtab = 'grouped';
+let currentGroupedProducts = [];
+let currentPendingMatches = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initApp();
   setupNavigation();
+  setupSubtabsNavigation();
   setupEventListeners();
 });
 
@@ -197,7 +202,7 @@ function switchTab(tabId) {
   }
 
   if (tabId === 'skus') {
-    loadMarketplaceListings();
+    loadSkusSubtabData();
   }
 }
 
@@ -304,10 +309,312 @@ function renderOverviewAccounts() {
 }
 
 /* ==========================================
-   TAB 2: ANÚNCIOS IMPORTADOS (CARDS VISUAIS)
+   TAB 2: ANÚNCIOS & SKUS (SUB-ABAS MULTICANAL)
    ========================================== */
 
 let expandedListings = new Set();
+
+function setupSubtabsNavigation() {
+  const subtabBtns = document.querySelectorAll('.subtab-btn');
+  subtabBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      subtabBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentSubtab = btn.dataset.subtab;
+
+      const titles = {
+        grouped: { title: '📦 Produtos Agrupados (SyncGroup / MasterProduct)', sub: 'Anúncios equivalentes de diferentes marketplaces agrupados em um único produto central.' },
+        pending: { title: '🔍 Vínculos para Revisar (Pendências de Matching)', sub: 'Anúncios com média confiança (70% a 89%) aguardando confirmação humana.' },
+        listings: { title: '🏷️ Anúncios por Canal (Visão Detalhada)', sub: 'Lista completa de anúncios persistidos por conta e marketplace.' }
+      };
+
+      if (titles[currentSubtab]) {
+        const titleEl = document.getElementById('subtab-title');
+        const subEl = document.getElementById('subtab-subtitle');
+        if (titleEl) titleEl.textContent = titles[currentSubtab].title;
+        if (subEl) subEl.textContent = titles[currentSubtab].sub;
+      }
+
+      loadSkusSubtabData();
+    });
+  });
+}
+
+function loadSkusSubtabData() {
+  if (currentSubtab === 'grouped') {
+    loadGroupedProducts();
+  } else if (currentSubtab === 'pending') {
+    loadPendingMatches();
+  } else {
+    loadMarketplaceListings();
+  }
+}
+
+async function loadGroupedProducts() {
+  const container = document.getElementById('marketplace-listings-container');
+  if (container) {
+    container.innerHTML = `
+      <div class="listings-loading" style="grid-column: 1 / -1; text-align: center; padding: 64px;">
+        <div class="spinner" style="width: 48px; height: 48px; border: 4px solid rgba(167, 243, 208, 0.3); border-top-color: #A7F3D0; border-radius: 50%; margin: 0 auto 16px; animation: spin 1s linear infinite;"></div>
+        <p style="color: var(--text-muted); font-size: 16px;">Carregando produtos agrupados do servidor...</p>
+      </div>
+    `;
+  }
+
+  try {
+    const res = await GroupsAPI.getGroupedProducts();
+    currentGroupedProducts = (res && res.groupedProducts) || [];
+    renderGroupedProducts();
+    await updatePendingMatchesBadge();
+  } catch (err) {
+    currentGroupedProducts = [];
+    console.error('[GROUPS] Falha ao carregar produtos agrupados:', err.message);
+    if (container) {
+      container.innerHTML = `
+        <div class="listings-error" style="grid-column: 1 / -1; text-align: center; padding: 48px; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
+          <h3 style="color: #EF4444; margin-bottom: 12px;">❌ Não foi possível carregar os produtos agrupados</h3>
+          <p style="color: var(--text-muted); font-size: 14px;">${escapeHtml(err.message)}</p>
+          <button class="btn btn-secondary" style="margin-top: 16px;" onclick="window.loadGroupedProducts()">Tentar Novamente</button>
+        </div>
+      `;
+    }
+  }
+}
+
+function renderGroupedProducts(groupsToRender = currentGroupedProducts) {
+  const container = document.getElementById('marketplace-listings-container');
+  if (!container) return;
+
+  if (groupsToRender.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: var(--bg-card); border-radius: 12px; border: 2px dashed var(--border-subtle);">
+        <div style="font-size: 56px; margin-bottom: 16px;">📦</div>
+        <h3 style="color: var(--text-primary); margin-bottom: 8px;">Nenhum produto agrupado</h3>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">Use "Importar Anúncios" em Canais & APIs ou clique em "Reanalisar Correspondências" para agrupar anúncios.</p>
+        <button class="btn btn-primary" onclick="document.querySelector('[data-tab=\\"channels\\"]').click()">Ir para Canais & APIs</button>
+      </div>
+    `;
+    return;
+  }
+
+  const counterEl = document.getElementById('listings-counter');
+  if (counterEl) {
+    counterEl.textContent = `${groupsToRender.length} produto(s) central(is) agrupado(s)`;
+  }
+
+  const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4OCIgaGVpZ2h0PSI4OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIxMiIgZmlsbD0iIzE5MTIxNCIgc3Ryb2tlPSJyZ2JhKDIzOSwgNjgsIDY4LCAwLjMpIiBzdHJva2Utd2lkdGg9IjEiLz48dGV4dCB4PSI1MCUiIHk9IjQyJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI0VGNDQ0NCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSI4MDAiPkxYPC90ZXh0Pjx0ZXh0IHg9IjUwJSIgeT0iNjIlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOUNBM0FGIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSI5IiBmb250LXdlaWdodD0iNjAwIj5TeW5jPC90ZXh0Pjwvc3ZnPg==';
+
+  container.innerHTML = groupsToRender.map(group => {
+    const isExpanded = expandedListings.has(group.id);
+    const priceRange = group.priceMin === group.priceMax
+      ? `R$ ${group.priceMin.toFixed(2)}`
+      : `R$ ${group.priceMin.toFixed(2)} - R$ ${group.priceMax.toFixed(2)}`;
+
+    const divergencesHtml = group.divergences && group.divergences.length > 0
+      ? `<div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 8px 12px; font-size: 11px; color: #FBBF24; margin-top: 4px;">
+          ⚠️ <strong>Divergências no Grupo:</strong> ${group.divergences.map(d => escapeHtml(d)).join(' • ')}
+         </div>`
+      : '';
+
+    const listingsRows = group.listings.map(l => {
+      const vCount = l.variations?.length || 0;
+      const confidenceBadge = Math.round((l.confidenceScore || 1.0) * 100);
+      return `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+          <td style="padding: 8px 10px;">
+            <span class="badge ${l.marketplace || 'meli'}">${escapeHtml((l.marketplace || 'mp').toUpperCase())}</span>
+          </td>
+          <td style="padding: 8px 10px;">
+            <strong style="color: #fff; font-size: 12px;">${escapeHtml(l.accountName)}</strong>
+          </td>
+          <td style="padding: 8px 10px;">
+            <div style="font-weight: 600; color: #fff; font-size: 12px;">${escapeHtml(l.title)}</div>
+            <code class="external-id-badge" style="font-size: 10px;">${escapeHtml(l.externalListingId)}</code>
+          </td>
+          <td style="padding: 8px 10px;">
+            <span class="pill-mini synced">${confidenceBadge}% Confiança</span>
+          </td>
+          <td style="padding: 8px 10px;">
+            <span class="status-chip ${l.status === 'PAUSED' ? 'paused' : 'active'}">${l.status}</span>
+          </td>
+          <td style="padding: 8px 10px; text-align: right;">
+            <span style="font-size: 11px; color: var(--text-muted);">${vCount} variação(ões)</span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <article class="announcement-card ${isExpanded ? 'expanded' : ''}" data-listing-id="${escapeHtml(group.id)}">
+        <div class="card-header-wrapper">
+          <img src="${placeholderSvg}" alt="${escapeHtml(group.name)}" class="listing-main-image">
+          <div class="card-header-info">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="pill-mini meli">PRODUTO CENTRAL</span>
+              <code class="external-id-badge">${escapeHtml(group.masterSku)}</code>
+            </div>
+            <h3 class="announcement-title">${escapeHtml(group.name)}</h3>
+            <div class="announcement-meta-pills">
+              <span class="badge-account-name">${group.marketplacesCount} Marketplace(s)</span>
+              <span class="status-chip active">✅ ${group.listingsCount} Anúncios Vinculados</span>
+              <span class="status-chip paused">${group.variationsCount} Variações</span>
+            </div>
+          </div>
+        </div>
+
+        ${divergencesHtml}
+
+        <div class="card-metrics-grid">
+          <div class="metric-box">
+            <span class="metric-label">Faixa de Preço</span>
+            <span class="metric-value price">${priceRange}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Estoque Total</span>
+            <span class="metric-value stock ${group.totalStock === 0 ? 'zero' : group.totalStock <= 2 ? 'low' : ''}">${group.totalStock} un</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Canais</span>
+            <span class="metric-value">${group.marketplacesCount} marketplaces</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Status Sync</span>
+            <span class="metric-value sync">100% Sincronizado</span>
+          </div>
+        </div>
+
+        <div class="card-footer-actions">
+          <button class="btn btn-secondary btn-sm btn-toggle-variations" onclick="event.stopPropagation(); window.toggleListingExpansion('${escapeHtml(group.id)}')">
+            <span class="variations-arrow ${isExpanded ? 'expanded' : ''}">▼</span>
+            ${isExpanded ? 'Ocultar anúncios vinculados' : 'Ver anúncios vinculados'} (${group.listingsCount})
+          </button>
+          <button class="btn btn-primary btn-sm btn-edit-announcement" onclick="event.stopPropagation(); window.openEditAnnouncementModal('${escapeHtml(group.id)}')">
+            ✏️ Editar produto central
+          </button>
+        </div>
+
+        <div class="variations-section" id="variations-${escapeHtml(group.id)}" style="${isExpanded ? 'display: block;' : 'display: none;'}">
+          <h4 style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 10px;">Anúncios e Variações Vinculadas ao Produto Central:</h4>
+          <div class="variations-table-wrapper">
+            <table class="variations-table">
+              <thead>
+                <tr>
+                  <th>Canal</th>
+                  <th>Conta</th>
+                  <th>Anúncio & ID</th>
+                  <th>Confiança</th>
+                  <th>Status</th>
+                  <th style="text-align: right;">Variações</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${listingsRows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function loadPendingMatches() {
+  const container = document.getElementById('marketplace-listings-container');
+  if (container) {
+    container.innerHTML = `
+      <div class="listings-loading" style="grid-column: 1 / -1; text-align: center; padding: 64px;">
+        <div class="spinner" style="width: 48px; height: 48px; border: 4px solid rgba(251, 191, 36, 0.3); border-top-color: #FBBF24; border-radius: 50%; margin: 0 auto 16px; animation: spin 1s linear infinite;"></div>
+        <p style="color: var(--text-muted); font-size: 16px;">Buscando vínculos pendentes de revisão humana...</p>
+      </div>
+    `;
+  }
+
+  try {
+    const res = await GroupsAPI.getPendingMatches();
+    currentPendingMatches = (res && res.pendingMatches) || [];
+    renderPendingMatches();
+    await updatePendingMatchesBadge();
+  } catch (err) {
+    currentPendingMatches = [];
+    console.error('[GROUPS] Falha ao carregar pendências:', err.message);
+    if (container) {
+      container.innerHTML = `
+        <div class="listings-error" style="grid-column: 1 / -1; text-align: center; padding: 48px; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
+          <h3 style="color: #EF4444; margin-bottom: 12px;">❌ Não foi possível carregar as pendências de matching</h3>
+          <p style="color: var(--text-muted); font-size: 14px;">${escapeHtml(err.message)}</p>
+        </div>
+      `;
+    }
+  }
+}
+
+function renderPendingMatches() {
+  const container = document.getElementById('marketplace-listings-container');
+  if (!container) return;
+
+  if (currentPendingMatches.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: var(--bg-card); border-radius: 12px; border: 2px dashed var(--border-subtle);">
+        <div style="font-size: 56px; margin-bottom: 16px;">✅</div>
+        <h3 style="color: #34D399; margin-bottom: 8px;">Nenhuma pendência de vínculo</h3>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">Todos os anúncios importados estão vinculados ou classificados com alta confiança.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const counterEl = document.getElementById('listings-counter');
+  if (counterEl) {
+    counterEl.textContent = `${currentPendingMatches.length} vínculo(s) pendente(s) de revisão`;
+  }
+
+  container.innerHTML = currentPendingMatches.map(item => `
+    <article class="announcement-card" style="border-color: rgba(251, 191, 36, 0.4);">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px; margin-bottom: 12px;">
+        <span class="pill-mini shopee" style="font-size: 11px;">🔍 Sugestão de Matching</span>
+        <span class="status-chip paused" style="font-size: 12px;">Confiança: ${Math.round((item.confidenceScore || 0.8) * 100)}%</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px;">
+        <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04);">
+          <span style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Produto Mestre Central</span>
+          <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 4px 0 2px;">${escapeHtml(item.masterProduct.name)}</h4>
+          <code class="external-id-badge">${escapeHtml(item.masterProduct.masterSku)}</code>
+        </div>
+        <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04);">
+          <span style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Anúncio do Marketplace (${escapeHtml((item.listing.marketplace || 'mp').toUpperCase())})</span>
+          <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin: 4px 0 2px;">${escapeHtml(item.listing.title)}</h4>
+          <span style="font-size: 11px; color: #60A5FA;">${escapeHtml(item.listing.accountName)} • ${escapeHtml(item.listing.externalListingId)}</span>
+        </div>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 10px; border-radius: 8px; font-size: 12px; color: var(--text-muted); margin-bottom: 14px;">
+        💡 <strong>Sinais de Coincidência:</strong> ${item.compatibilities && item.compatibilities.length > 0 ? item.compatibilities.map(c => escapeHtml(c)).join(' • ') : escapeHtml(item.reason)}
+      </div>
+
+      <div class="card-footer-actions">
+        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); window.handleConfirmMatch('${item.mappingId}')" style="flex: 1; justify-content: center;">
+          ✅ Confirmar Vínculo
+        </button>
+        <button class="btn btn-danger-outline btn-sm" onclick="event.stopPropagation(); window.handleRejectMatch('${item.mappingId}')" style="flex: 1; justify-content: center;">
+          ❌ Rejeitar
+        </button>
+      </div>
+    </article>
+  `).join('');
+}
+
+async function updatePendingMatchesBadge() {
+  try {
+    const res = await GroupsAPI.getPendingMatches();
+    const count = (res && res.totalPending) || 0;
+    const badge = document.getElementById('badge-pending-matches-count');
+    if (badge) badge.textContent = count;
+  } catch (e) {
+    // silencioso
+  }
+}
 
 async function loadMarketplaceListings() {
   const container = document.getElementById('marketplace-listings-container');
@@ -1553,4 +1860,79 @@ async function handleBatchPublish() {
     alert(`❌ Erro ao publicar: ${err.message}`);
     btnClose.style.display = 'inline-flex';
   }
+}
+
+/* ==========================================
+   GLOBAL HANDLERS FOR GROUPING & MATCHING
+   ========================================== */
+
+window.handleConfirmMatch = async function(mappingId) {
+  try {
+    await GroupsAPI.confirmMatch(mappingId);
+    showNotification('success', 'Vínculo Confirmado', 'Anúncio vinculado com sucesso ao produto mestre central!');
+    loadPendingMatches();
+  } catch (e) {
+    showNotification('error', 'Falha ao Confirmar', e.message);
+  }
+};
+
+window.handleRejectMatch = async function(mappingId) {
+  try {
+    await GroupsAPI.rejectMatch(mappingId);
+    showNotification('info', 'Vínculo Rejeitado', 'A sugestão de vínculo foi removida.');
+    loadPendingMatches();
+  } catch (e) {
+    showNotification('error', 'Falha ao Rejeitar', e.message);
+  }
+};
+
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'btn-run-rematch') {
+    handleRunRematch();
+  } else if (e.target && e.target.id === 'btn-export-grouped-csv') {
+    handleExportGroupedCsv();
+  }
+});
+
+async function handleRunRematch() {
+  const btn = document.getElementById('btn-run-rematch');
+  if (btn) { btn.disabled = true; btn.textContent = '🔄 Reanalisando...'; }
+  try {
+    const res = await GroupsAPI.runRematching();
+    showNotification('success', 'Re-análise Concluída', res.message || 'Correspondências reanalisadas com sucesso!');
+    loadSkusSubtabData();
+  } catch (err) {
+    showNotification('error', 'Falha no Rematching', err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Reanalisar Correspondências'; }
+  }
+}
+
+function handleExportGroupedCsv() {
+  if (currentGroupedProducts.length === 0) {
+    showNotification('warning', 'Exportação CSV', 'Nenhum dado de produto agrupado para exportar.');
+    return;
+  }
+
+  const headers = ['ID Produto Central', 'SKU Master', 'Nome Produto Central', 'Qtd Marketplaces', 'Qtd Anúncios', 'Preço Mín', 'Preço Máx', 'Estoque Total', 'Divergências'];
+  const rows = currentGroupedProducts.map(p => [
+    p.id,
+    `"${p.masterSku}"`,
+    `"${(p.name || '').replace(/"/g, '""')}"`,
+    p.marketplacesCount,
+    p.listingsCount,
+    p.priceMin,
+    p.priceMax,
+    p.totalStock,
+    `"${(p.divergences || []).join('; ').replace(/"/g, '""')}"`
+  ]);
+
+  const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', `lx_sync_grouped_products_${new Date().toISOString().slice(0,10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }

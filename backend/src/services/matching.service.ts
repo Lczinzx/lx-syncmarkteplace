@@ -84,26 +84,30 @@ export function calculateMatchConfidence(
   const divergences: string[] = [];
   let score = 0;
 
-  // 1. Comparação de SKU (Peso Alto: 60 pontos)
+  // 1. Comparação de SKU (Peso Alto: 70 pontos se idêntico)
   if (normSkuA && normSkuB && normSkuA === normSkuB) {
-    score += 60;
+    score += 70;
     compatibilities.push(`SKU idêntico (${normSkuA})`);
-  } else if (normSkuA && normSkuB) {
-    const decompA = decomposeSku(normSkuA);
-    const decompB = decomposeSku(normSkuB);
+  } else if (normSkuA || normSkuB) {
+    const decompA = decomposeSku(normSkuA || itemA.sku);
+    const decompB = decomposeSku(normSkuB || itemB.sku);
     if (decompA.code && decompB.code && decompA.code === decompB.code) {
-      score += 25;
+      score += 30;
       compatibilities.push(`Código de estampa compatível (${decompA.code})`);
     }
+    if (decompA.theme && decompB.theme && decompA.theme === decompB.theme) {
+      score += 15;
+      compatibilities.push(`Tema compatível (${decompA.theme})`);
+    }
     if (decompA.size && decompB.size && decompA.size === decompB.size) {
-      score += 20;
+      score += 25;
       compatibilities.push(`Medida/Tamanho compatível (${decompA.size})`);
     } else if (decompA.size && decompB.size && decompA.size !== decompB.size) {
       divergences.push(`Medidas conflitantes (${decompA.size} vs ${decompB.size})`);
     }
   }
 
-  // 2. Comparação de Título Normalizado (Peso Médio: 30 pontos)
+  // 2. Comparação de Título Normalizado (Peso Médio: até 30 pontos)
   const normTitleA = normalizeListingTitleForComparison(itemA.title);
   const normTitleB = normalizeListingTitleForComparison(itemB.title);
 
@@ -111,11 +115,11 @@ export function calculateMatchConfidence(
     score += 30;
     compatibilities.push('Título principal idêntico');
   } else {
-    const wordsA = normTitleA.split(' ').filter(w => w.length > 2);
-    const wordsB = normTitleB.split(' ').filter(w => w.length > 2);
+    const wordsA = normTitleA.split(' ').filter(w => w.length > 2 && !['capa', 'painel', 'redondo', 'mesa'].includes(w));
+    const wordsB = normTitleB.split(' ').filter(w => w.length > 2 && !['capa', 'painel', 'redondo', 'mesa'].includes(w));
     const commonWords = wordsA.filter(w => wordsB.includes(w));
-    if (commonWords.length >= 2) {
-      const meScore = Math.min(25, commonWords.length * 8);
+    if (commonWords.length >= 1) {
+      const meScore = Math.min(25, commonWords.length * 12);
       score += meScore;
       compatibilities.push(`Palavras-chave em comum: ${commonWords.join(', ')}`);
     }
@@ -128,9 +132,9 @@ export function calculateMatchConfidence(
 
   const finalScore = Math.min(100, score);
   let matchLevel: MatchScoreResult['matchLevel'] = 'LOW';
-  if (finalScore >= 95) matchLevel = 'VERY_STRONG';
-  else if (finalScore >= 80) matchLevel = 'PROBABLE';
-  else if (finalScore >= 60) matchLevel = 'REQUIRES_REVISION';
+  if (finalScore >= 90) matchLevel = 'VERY_STRONG';
+  else if (finalScore >= 70) matchLevel = 'REQUIRES_REVISION';
+  else if (finalScore >= 50) matchLevel = 'PROBABLE';
 
   return {
     confidenceScore: finalScore,

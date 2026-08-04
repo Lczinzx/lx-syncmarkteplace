@@ -335,11 +335,35 @@
           </div>
         </div>
 
+        <!-- Sub-Navegação da Tela Anúncios & SKUs -->
+        <div class="subtabs-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-card); padding-bottom: 12px; flex-wrap: wrap; gap: 12px;">
+          <div class="subtabs-group" style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary subtab-btn active" id="btn-subtab-grouped" data-subtab="grouped">
+              📦 Produtos Agrupados (Multicanal)
+            </button>
+            <button class="btn btn-secondary subtab-btn" id="btn-subtab-pending" data-subtab="pending">
+              🔍 Vínculos para Revisar
+              <span id="badge-pending-matches-count" class="pill-mini shopee" style="margin-left: 4px;">0</span>
+            </button>
+            <button class="btn btn-secondary subtab-btn" id="btn-subtab-listings" data-subtab="listings">
+              🏷️ Anúncios por Canal
+            </button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="btn-run-rematch" class="btn btn-primary btn-sm" title="Executar re-análise automática de correspondências entre marketplaces">
+              ⚡ Reanalisar Correspondências
+            </button>
+            <button id="btn-export-grouped-csv" class="btn btn-secondary btn-sm" title="Exportar dados agrupados completos em CSV">
+              📥 Exportar CSV
+            </button>
+          </div>
+        </div>
+
         <div class="card shadow-card" style="margin-bottom: 24px;">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
-              <h3>📦 Anúncios Importados (PostgreSQL)</h3>
-              <p class="card-subtitle" style="margin-bottom: 0;">Anúncios e variações persistidos via importação — <span id="listings-counter" style="color:#A7F3D0; font-weight:700;">carregando...</span></p>
+              <h3 id="subtab-title">📦 Produtos Agrupados (SyncGroup / MasterProduct)</h3>
+              <p class="card-subtitle" style="margin-bottom: 0;" id="subtab-subtitle">Anúncios equivalentes de diferentes marketplaces agrupados em um único produto central — <span id="listings-counter" style="color:#A7F3D0; font-weight:700;">carregando...</span></p>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
               <div class="search-box" style="min-width: 200px; max-width: 300px;">
