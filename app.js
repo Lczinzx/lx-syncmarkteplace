@@ -349,7 +349,7 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
       <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: var(--bg-card); border-radius: 12px; border: 2px dashed var(--border-subtle);">
         <div style="font-size: 56px; margin-bottom: 16px;">📦</div>
         <h3 style="color: var(--text-primary); margin-bottom: 8px;">Nenhum anúncio encontrado</h3>
-        <p style="color: var(--text-muted); margin-bottom: 24px;">Use "Importar Anúncios" em Canais & APIs ou limpe os filtros de busca.</p>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">Use "Importar Anúncios" em Canais & APIs ou ajuste seus termos de busca.</p>
         <button class="btn btn-primary" onclick="document.querySelector('[data-tab=\\"channels\\"]').click()">Ir para Canais & APIs</button>
       </div>
     `;
@@ -359,54 +359,50 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
 
   updateSummaryCards();
 
+  const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4OCIgaGVpZ2h0PSI4OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIxMiIgZmlsbD0iIzE5MTIxNCIgc3Ryb2tlPSJyZ2JhKDIzOSwgNjgsIDY4LCAwLjMpIiBzdHJva2Utd2lkdGg9IjEiLz48dGV4dCB4PSI1MCUiIHk9IjQyJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI0VGNDQ0NCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSI4MDAiPkxYPC90ZXh0Pjx0ZXh0IHg9IjUwJSIgeT0iNjIlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOUNBM0FGIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSI5IiBmb250LXdlaWdodD0iNjAwIj5TeW5jPC90ZXh0Pjwvc3ZnPg==';
+
   container.innerHTML = listingsToRender.map(listing => {
     const account = listing.account || {};
     const variations = listing.variations || [];
     const isExpanded = expandedListings.has(listing.id);
     
-    const mainImageUrl = listing.imageUrl || `https://picsum.photos/seed/${listing.externalListingId}/360/360`;
+    const mainImageUrl = listing.imageUrl || placeholderSvg;
     const totalStock = variations.reduce((sum, v) => sum + (v.stock || 0), 0);
     const priceMin = variations.length > 0 ? Math.min(...variations.map(v => v.price || 0)) : 0;
     const priceMax = variations.length > 0 ? Math.max(...variations.map(v => v.price || 0)) : 0;
     const priceRange = priceMin === priceMax ? `R$ ${priceMin.toFixed(2)}` : `R$ ${priceMin.toFixed(2)} - R$ ${priceMax.toFixed(2)}`;
-    const zeroStockCount = variations.filter(v => (v.stock || 0) === 0).length;
-    const lowStockCount = variations.filter(v => (v.stock || 0) > 0 && (v.stock || 0) <= 2).length;
-    const noSkuCount = variations.filter(v => !v.currentSku || v.currentSku.trim() === '').length;
-    const statusClass = listing.status === 'PAUSED' ? 'warning' : 'synced';
     const statusIcon = listing.status === 'PAUSED' ? '⏸' : '✅';
     const statusText = listing.status === 'PAUSED' ? 'PAUSADO' : 'ATIVO';
 
     const variationRows = variations.map(v => {
-      const varImageUrl = v.imageUrl || `https://picsum.photos/seed/${listing.externalListingId}-${v.externalVariationId}/160/160`;
+      const varImageUrl = v.imageUrl || placeholderSvg;
       const stock = v.stock || 0;
-      const stockClass = stock === 0 ? 'stock-zero' : stock <= 2 ? 'stock-low' : 'stock-normal';
+      const stockClass = stock === 0 ? 'zero' : stock <= 2 ? 'low' : '';
       const stockText = stock === 0 ? 'SEM ESTOQUE' : stock <= 2 ? `BAIXO (${stock} un)` : `${stock} un`;
-      const skuText = v.currentSku && v.currentSku.trim() ? v.currentSku : '<span style="color:#EF4444;">Sem SKU</span>';
+      const skuText = v.currentSku && v.currentSku.trim() ? escapeHtml(v.currentSku) : '<span style="color:#EF4444;">Sem SKU</span>';
       
       return `
-        <tr class="variation-row" data-variation-id="${escapeHtml(v.id)}" onclick="event.stopPropagation(); openSkuEditModal('${escapeHtml(v.id)}')">
+        <tr class="variation-row" data-variation-id="${escapeHtml(v.id)}" onclick="event.stopPropagation(); window.openSkuEditModal('${escapeHtml(v.id)}')">
           <td>
             <img src="${varImageUrl}" alt="${escapeHtml(v.variationName)}" class="variation-image" 
-                 onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzk5OSIgZm9udC1zaXplPSIxMiI+TFggU3luYzwvdGV4dD48L3N2Zz4=';">
+                 onerror="this.onerror=null; this.src='${placeholderSvg}';">
           </td>
           <td>
             <div class="variation-name">${escapeHtml(v.variationName)}</div>
-          </td>
-          <td>
             <code class="variation-sku">${skuText}</code>
           </td>
           <td>
-            <span style="color: #A7F3D0; font-weight: 600;">R$ ${Number(v.price || 0).toFixed(2)}</span>
+            <span style="color: #A7F3D0; font-weight: 700;">R$ ${Number(v.price || 0).toFixed(2)}</span>
           </td>
           <td>
             <span class="stock-indicator ${stock === 0 ? 'stock-zero' : stock <= 2 ? 'stock-low' : 'stock-normal'}">${stockText}</span>
           </td>
           <td>
-            <span class="badge ${v.status === 'ACTIVE' ? 'synced' : 'warning'}">${v.status === 'ACTIVE' ? '✅' : '⏸'}</span>
+            <span class="status-chip ${v.status === 'ACTIVE' ? 'active' : 'paused'}">${v.status === 'ACTIVE' ? '✅' : '⏸'}</span>
           </td>
           <td style="text-align: right;">
-            <button class="btn-icon" onclick="event.stopPropagation(); openSkuEditModal('${escapeHtml(v.id)}')" title="Editar SKU" aria-label="Editar SKU">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+            <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); window.openSkuEditModal('${escapeHtml(v.id)}')" title="Editar SKU">
+              ✏️ Editar
             </button>
           </td>
         </tr>
@@ -414,76 +410,66 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
     }).join('');
 
     return `
-      <article class="announcement-card" data-listing-id="${escapeHtml(listing.id)}">
-        <div class="card-main-header" onclick="toggleListingExpansion('${escapeHtml(listing.id)}')">
-          <div class="card-left">
-            <img src="${mainImageUrl}" alt="${escapeHtml(listing.title)}" class="listing-main-image" 
-                 onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MiIgaGVpZ2h0PSI3MiIgdmlld0JveD0iMCAwIDcyIDcyIj48cmVjdCB3aWR0aD0iNzIiIGhlaWdodD0iNzIiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzk5OSIgZm9udC1zaXplPSIxNCI+TFggU3luYzwvdGV4dD48L3N2Zz4=';">
-            <div class="card-info">
-              <h3 class="announcement-title">${escapeHtml(listing.title)}</h3>
-              <div class="announcement-meta">
-                <span class="badge-meta id">${escapeHtml(listing.externalListingId)}</span>
-                <span class="badge ${account.marketplace || 'meli'}">${escapeHtml((account.marketplace || 'mp').toUpperCase())}</span>
-                <span class="badge-meta account">${escapeHtml(account.accountName || '—')}</span>
-                <span class="status-badge ${listing.status === 'PAUSED' ? 'warning' : 'synced'}">${statusIcon} ${statusText}</span>
-              </div>
+      <article class="announcement-card ${isExpanded ? 'expanded' : ''}" data-listing-id="${escapeHtml(listing.id)}">
+        <div class="card-header-wrapper">
+          <img src="${mainImageUrl}" alt="${escapeHtml(listing.title)}" class="listing-main-image" 
+               onerror="this.onerror=null; this.src='${placeholderSvg}';">
+          <div class="card-header-info">
+            <h3 class="announcement-title">${escapeHtml(listing.title)}</h3>
+            <div class="announcement-id-row">
+              <code class="external-id-badge">${escapeHtml(listing.externalListingId)}</code>
             </div>
-          </div>
-          <div class="card-right">
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">Faixa de Preço</span>
-                <span class="info-value">${priceRange}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Estoque Total</span>
-                <span class="info-value">${totalStock} un</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Variações</span>
-                <span class="info-value">${listing.variations?.length || 0}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Última Sync</span>
-                <span class="info-value">${new Date(listing.updatedAt).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'})}</span>
-              </div>
-            </div>
-            <div class="card-actions">
-              <button class="btn-icon" onclick="event.stopPropagation(); toggleListingExpansion('${escapeHtml(listing.id)}')" aria-label="${isExpanded ? 'Ocultar variações' : 'Ver variações'}" title="${isExpanded ? 'Ocultar variações' : 'Ver variações'}">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s; ${expandedListings.has(listing.id) ? 'transform: rotate(180deg);' : ''}">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-              </button>
-              <button class="btn-icon" onclick="event.stopPropagation(); openEditAnnouncementModal('${escapeHtml(listing.id)}')" title="Editar Anúncio" aria-label="Editar Anúncio">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-              </button>
+            <div class="announcement-meta-pills">
+              <span class="badge ${account.marketplace || 'meli'}">${escapeHtml((account.marketplace || 'mp').toUpperCase())}</span>
+              <span class="badge-account-name">${escapeHtml(account.accountName || 'Festum Decor')}</span>
+              <span class="status-chip ${listing.status === 'PAUSED' ? 'paused' : 'active'}">${statusIcon} ${statusText}</span>
             </div>
           </div>
         </div>
 
-        <div class="variations-section" id="variations-${escapeHtml(listing.id)}" style="${expandedListings.has(listing.id) ? '' : 'display: none;'}">
-          <div class="variations-header" onclick="toggleListingExpansion('${escapeHtml(listing.id)}')">
-            <span class="variations-title">
-              <span class="variations-toggle ${expandedListings.has(listing.id) ? 'expanded' : ''}">▼</span>
-              Variações (${listing.variations?.length || 0})
-            </span>
-            <span class="variations-summary">
-              ${zeroStockCount > 0 ? `<span class="badge-meta stock-zero">⚠ ${zeroStockCount} sem estoque</span>` : ''}
-              ${lowStockCount > 0 ? `<span class="badge-meta stock-low">⚠ ${lowStockCount} estoque baixo</span>` : ''}
-              ${noSkuCount > 0 ? `<span class="badge-meta no-sku">⚠ ${noSkuCount} sem SKU</span>` : ''}
-            </span>
-          </span>
+        <div class="card-metrics-grid">
+          <div class="metric-box">
+            <span class="metric-label">Preço</span>
+            <span class="metric-value price">${priceRange}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Estoque Total</span>
+            <span class="metric-value stock ${totalStock === 0 ? 'zero' : totalStock <= 2 ? 'low' : ''}">${totalStock} un</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Variações</span>
+            <span class="metric-value">${variations.length}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Última Sync</span>
+            <span class="metric-value sync">${new Date(listing.updatedAt).toLocaleDateString('pt-BR')}</span>
+          </div>
+        </div>
+
+        <div class="card-footer-actions">
+          <button class="btn btn-secondary btn-sm btn-toggle-variations" onclick="event.stopPropagation(); window.toggleListingExpansion('${escapeHtml(listing.id)}')">
+            <span class="variations-arrow ${isExpanded ? 'expanded' : ''}">▼</span>
+            ${isExpanded ? 'Ocultar variações' : 'Ver variações'} (${variations.length})
+          </button>
+          <button class="btn btn-primary btn-sm btn-edit-announcement" onclick="event.stopPropagation(); window.openEditAnnouncementModal('${escapeHtml(listing.id)}')">
+            ✏️ Editar anúncio
+          </button>
+          <button class="btn btn-secondary btn-sm btn-icon" onclick="event.stopPropagation(); window.showListingOptions('${escapeHtml(listing.id)}')" title="Mais opções">
+            ⋮
+          </button>
+        </div>
+
+        <div class="variations-section" id="variations-${escapeHtml(listing.id)}" style="${isExpanded ? 'display: block;' : 'display: none;'}">
           <div class="variations-table-wrapper">
             <table class="variations-table">
               <thead>
                 <tr>
-                  <th>Imagem</th>
-                  <th>Variação</th>
-                  <th>SKU</th>
+                  <th>Foto</th>
+                  <th>Nome & SKU</th>
                   <th>Preço</th>
                   <th>Estoque</th>
                   <th>Status</th>
-                  <th>Ações</th>
+                  <th style="text-align: right;">Ação</th>
                 </tr>
               </thead>
               <tbody>
@@ -525,6 +511,12 @@ function updateSummaryCards() {
   if (counterEl) {
     counterEl.textContent = `${totalListings} anúncio(s) · ${totalVariations} variação(ões)`;
   }
+
+  // Atualiza o badge lateral de "Anúncios & SKUs" no menu de navegação
+  const badgeSku = document.getElementById('badge-sku-count');
+  if (badgeSku) {
+    badgeSku.textContent = totalListings > 0 ? totalListings : currentSkus.length;
+  }
 }
 
 function toggleListingExpansion(listingId) {
@@ -543,6 +535,18 @@ function toggleListingExpansion(listingId) {
     }
   }
 }
+
+window.toggleListingExpansion = toggleListingExpansion;
+window.loadMarketplaceListings = loadMarketplaceListings;
+window.openEditAnnouncementModal = function(id) {
+  showNotification('info', 'Editar Anúncio', `Anúncio selecionado (${id}). O formulário de edição completa será liberado na Fase 2.`);
+};
+window.openSkuEditModal = function(id) {
+  showNotification('info', 'Editar SKU', `Variação selecionada (${id}). O editor de SKU será liberado na Fase 2.`);
+};
+window.showListingOptions = function(id) {
+  showNotification('info', 'Opções do Anúncio', `Menu de opções do anúncio (${id}).`);
+};
 
 function renderSkusTable(skusList) {
   const tbody = document.getElementById('skus-table-body');

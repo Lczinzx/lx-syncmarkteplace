@@ -50,6 +50,29 @@ export class ImportService {
       listingsWithVars.push({ ...listing, variations: vars });
     }
 
+    // 1b. Limpeza de anúncios legados/obsoletos da conta (ex: FDM-001/002 de 3 dígitos)
+    if (typeof (client.marketplaceListing as any)?.findMany === 'function') {
+      const validExternalIds = new Set(listingsRes.listings.map(l => l.externalListingId));
+      const obsoleteListings = await client.marketplaceListing.findMany({
+        where: {
+          marketplaceAccountId: accountConfig.id,
+          externalListingId: { notIn: Array.from(validExternalIds) }
+        },
+        select: { id: true }
+      });
+
+      if (obsoleteListings.length > 0) {
+        const obsoleteIds = obsoleteListings.map(l => l.id);
+        await client.marketplaceVariation.deleteMany({
+          where: { marketplaceListingId: { in: obsoleteIds } }
+        });
+        await client.marketplaceListing.deleteMany({
+          where: { id: { in: obsoleteIds } }
+        });
+        console.log(`[IMPORT] ${obsoleteIds.length} anúncio(s) obsoleto(s) removido(s) da conta ${accountConfig.id}.`);
+      }
+    }
+
     // 2. Persistência idempotente (upsert por marketplaceAccountId + externalListingId)
     let createdListings = 0;
     let updatedListings = 0;

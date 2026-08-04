@@ -59,5 +59,26 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
     }
   });
 
+  // Limpeza idempotente de anúncios legados/obsoletos da conta DEMO (ex: FDM-001/002 de 3 dígitos)
+  const validDemoListingIds = new Set(Array.from({ length: 50 }, (_, i) => `FDM-${String(i + 1).padStart(4, '0')}`));
+  const obsoleteListings = await client.marketplaceListing.findMany({
+    where: {
+      marketplaceAccountId: account.id,
+      externalListingId: { notIn: Array.from(validDemoListingIds) }
+    },
+    select: { id: true }
+  });
+
+  if (obsoleteListings.length > 0) {
+    const obsoleteIds = obsoleteListings.map(l => l.id);
+    await client.marketplaceVariation.deleteMany({
+      where: { marketplaceListingId: { in: obsoleteIds } }
+    });
+    await client.marketplaceListing.deleteMany({
+      where: { id: { in: obsoleteIds } }
+    });
+    console.log(`[DEMO SEED] ${obsoleteIds.length} anúncio(s) DEMO obsoleto(s) removido(s) com sucesso da conta ${account.id}.`);
+  }
+
   return { enabled: true, seeded: true, accountId: account.id };
 }
