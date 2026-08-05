@@ -131,6 +131,7 @@ model MarketplaceListing {
   importedAt            DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   account               MarketplaceAccount   @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  images                MarketplaceListingImage[]
   variations            MarketplaceVariation[]
   mappings              ProductMapping[]
   jobItems              SkuChangeJobItem[]
@@ -140,6 +141,34 @@ model MarketplaceListing {
   @@index([marketplaceAccountId])
   @@index([externalListingId])
   @@map("marketplace_listings")
+}
+
+model MarketplaceListingImage {
+  id                    String               @id @default(uuid())
+  organizationId        String
+  marketplaceListingId  String
+  url                   String
+  storageKey            String?
+  position              Int                  @default(0)
+  isPrimary             Boolean              @default(false)
+  altText               String?
+  mimeType              String?
+  fileSize              Int?
+  width                 Int?
+  height                Int?
+  source                String               @default("UPLOAD") // UPLOAD, IMPORT, ADAPTER
+  externalImageId       String?
+  status                String               @default("ACTIVE") // ACTIVE, PENDING, SYNCED, FAILED
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  listing               MarketplaceListing   @relation(fields: [marketplaceListingId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([marketplaceListingId])
+  @@index([position])
+  @@index([isPrimary])
+  @@index([storageKey])
+  @@map("marketplace_listing_images")
 }
 
 model MarketplaceVariation {

@@ -335,29 +335,37 @@
           </div>
         </div>
 
-        <!-- Sub-Navegação da Tela Anúncios & SKUs -->
-        <div class="subtabs-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-card); padding-bottom: 12px; flex-wrap: wrap; gap: 12px;">
-          <div class="subtabs-group" style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary subtab-btn active" id="btn-subtab-grouped" data-subtab="grouped">
-              📦 Produtos Agrupados
+        <!-- Sub-Navegação da Tela Anúncios & SKUs (Estilo Central do Vendedor) -->
+        <div class="subtabs-bar" style="display: flex; justify-space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-card); padding-bottom: 12px; flex-wrap: wrap; gap: 12px;">
+          <div class="subtabs-group" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary subtab-btn active" id="btn-subtab-all" data-subtab="all">
+              📦 Todos os Anúncios
+            </button>
+            <button class="btn btn-secondary subtab-btn" id="btn-subtab-active" data-subtab="active">
+              🟢 Ativos
+            </button>
+            <button class="btn btn-secondary subtab-btn" id="btn-subtab-paused" data-subtab="paused">
+              ⏸️ Pausados
+            </button>
+            <button class="btn btn-secondary subtab-btn" id="btn-subtab-out-of-stock" data-subtab="out-of-stock">
+              ⚠️ Sem Estoque
+            </button>
+            <button class="btn btn-secondary subtab-btn" id="btn-subtab-divergences" data-subtab="divergences">
+              ⚡ Com Divergências
             </button>
             <button class="btn btn-secondary subtab-btn" id="btn-subtab-unlinked" data-subtab="unlinked">
-              🔓 Anúncios não vinculados
+              🔓 Não Vinculados
               <span id="badge-unlinked-count" class="pill-mini synced" style="margin-left: 4px;">0</span>
             </button>
-            <button class="btn btn-secondary subtab-btn" id="btn-subtab-pending" data-subtab="pending">
-              🔍 Vínculos para Revisar
-              <span id="badge-pending-matches-count" class="pill-mini shopee" style="margin-left: 4px;">0</span>
-            </button>
-            <button class="btn btn-secondary subtab-btn" id="btn-subtab-listings" data-subtab="listings">
-              🏷️ Anúncios por Canal
+            <button class="btn btn-secondary subtab-btn" id="btn-subtab-linked-products" data-subtab="linked-products">
+              🔗 Produtos Vinculados
             </button>
           </div>
           <div style="display: flex; gap: 8px;">
             <button id="btn-run-rematch" class="btn btn-primary btn-sm" title="Executar re-análise automática de correspondências entre marketplaces">
               ⚡ Reanalisar Correspondências
             </button>
-            <button id="btn-export-grouped-csv" class="btn btn-secondary btn-sm" title="Exportar dados agrupados completos em CSV">
+            <button id="btn-export-grouped-csv" class="btn btn-secondary btn-sm" title="Exportar dados completos de anúncios em CSV">
               📥 Exportar CSV
             </button>
           </div>
@@ -366,14 +374,29 @@
         <div class="card shadow-card" style="margin-bottom: 24px;">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
-              <h3 id="subtab-title">📦 Produtos Agrupados (SyncGroup / MasterProduct)</h3>
-              <p class="card-subtitle" style="margin-bottom: 0;" id="subtab-subtitle">Anúncios equivalentes de diferentes marketplaces agrupados em um único produto central — <span id="listings-counter" style="color:#A7F3D0; font-weight:700;">carregando...</span></p>
+              <h3 id="subtab-title">📦 Todos os Anúncios (Catálogo Unificado)</h3>
+              <p class="card-subtitle" style="margin-bottom: 0;" id="subtab-subtitle">Visualização no estilo Central do Vendedor — <span id="listings-counter" style="color:#A7F3D0; font-weight:700;">carregando...</span></p>
             </div>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-              <div class="search-box" style="min-width: 200px; max-width: 300px;">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+              <div class="search-box" style="min-width: 220px; max-width: 320px;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                 <input type="text" id="search-listings-input" placeholder="Buscar por título, SKU, conta..." style="width: 100%;">
               </div>
+              <select id="filter-marketplace-select" class="select-input" style="width: 140px; font-size: 12px;">
+                <option value="all">Todos os Canais</option>
+                <option value="shopee">Shopee</option>
+                <option value="mercadolivre">Mercado Livre</option>
+                <option value="tiktok">TikTok Shop</option>
+                <option value="amazon">Amazon BR</option>
+              </select>
+              <select id="sort-listings-select" class="select-input" style="width: 160px; font-size: 12px;">
+                <option value="recent">Mais Recentes</option>
+                <option value="price-asc">Preço: Menor para Maior</option>
+                <option value="price-desc">Preço: Maior para Menor</option>
+                <option value="stock">Estoque</option>
+                <option value="title">Título</option>
+                <option value="channels">Mais Canais Vinculados</option>
+              </select>
               <button id="btn-refresh-listings" class="btn btn-secondary">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                 Atualizar
@@ -382,8 +405,21 @@
           </div>
         </div>
 
-        <!-- Container de Cards de Anúncios -->
-        <div id="marketplace-listings-container" class="listings-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px;">
+        <!-- Floating Bulk Action Bar -->
+        <div id="bulk-actions-floating-bar" style="display: none; position: sticky; top: 16px; z-index: 100; background: rgba(22, 19, 22, 0.95); border: 1px solid #EF4444; border-radius: 12px; padding: 12px 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); backdrop-filter: blur(10px); justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 13px; font-weight: 700; color: #fff;" id="bulk-selected-count">0 anúncios selecionados</span>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-sm" id="btn-bulk-export-csv">📥 Exportar Selecionados</button>
+            <button class="btn btn-secondary btn-sm" id="btn-bulk-edit-status">✏️ Alterar Status</button>
+            <button class="btn btn-primary btn-sm" id="btn-bulk-sync-stock">⚡ Sincronizar Estoque</button>
+            <button class="btn btn-secondary btn-sm" id="btn-bulk-deselect" style="color: var(--text-muted);">&times; Desmarcar</button>
+          </div>
+        </div>
+
+        <!-- Container de Cards de Anúncios (Grid Responsivo Estilo Catálogo Seller Central: 4 por linha em Full HD) -->
+        <div id="marketplace-listings-container" class="announcement-catalog-grid">
           <!-- Cards serão injetados aqui via JS -->
         </div>
 

@@ -16,6 +16,17 @@ export interface ListingVariationView {
   price: number;
   stock: number;
   status: string;
+  imageUrl?: string | null;
+}
+
+export interface LinkedChannelView {
+  marketplaceAccountId: string;
+  marketplace: string;
+  accountName: string;
+  externalListingId: string;
+  title: string;
+  status: string;
+  confidenceScore: number;
 }
 
 export interface MarketplaceListingView {
@@ -25,13 +36,18 @@ export interface MarketplaceListingView {
   title: string;
   description?: string | null;
   imageUrl?: string | null;
+  images?: Array<{ id: string; url: string; isPrimary: boolean; position: number }>;
+  masterProductImageUrl?: string | null;
   categoryId?: string | null;
   status: string;
   listingUrl?: string | null;
   importedAt: string;
   updatedAt: string;
-account: ListingAccountView;
+  account: ListingAccountView;
   variations: ListingVariationView[];
+  linkedChannels: LinkedChannelView[];
+  linkedMasterProductId?: string | null;
+  linkedMasterSku?: string | null;
 }
 
 export interface ListingsResultView {
@@ -43,16 +59,60 @@ export interface ListingsResultView {
 type ListingWithRelations = MarketplaceListing & {
   account: MarketplaceAccount;
   variations: MarketplaceVariation[];
+  images?: any[];
+  mappings?: any[];
 };
 
 export function toListingView(listing: ListingWithRelations): MarketplaceListingView {
+  const primaryImg = (listing as any).images?.find((i: any) => i.isPrimary) || (listing as any).images?.[0];
+  const mainUrl = listing.imageUrl || (primaryImg ? primaryImg.url : null);
+
+  // Mapeia canais vinculados através de ProductMapping
+  const mappings = (listing as any).mappings || [];
+  const linkedChannels: LinkedChannelView[] = [];
+  let masterProductImageUrl: string | null = null;
+  let linkedMasterProductId: string | null = null;
+  let linkedMasterSku: string | null = null;
+
+  if (mappings.length > 0 && mappings[0].masterProduct) {
+    const mp = mappings[0].masterProduct;
+    masterProductImageUrl = mp.imageUrl || null;
+    linkedMasterProductId = mp.id;
+    linkedMasterSku = mp.masterSku;
+
+    if (Array.isArray(mp.mappings)) {
+      mp.mappings.forEach((m: any) => {
+        if (m.listing && m.account && m.listing.id !== listing.id) {
+          linkedChannels.push({
+            marketplaceAccountId: m.account.id,
+            marketplace: m.account.marketplace,
+            accountName: m.account.accountName,
+            externalListingId: m.listing.externalListingId,
+            title: m.listing.title,
+            status: m.listing.status,
+            confidenceScore: m.confidenceScore || 1.0
+          });
+        }
+      });
+    }
+  }
+
   return {
     id: listing.id,
     externalListingId: listing.externalListingId,
     externalProductId: listing.externalProductId,
     title: listing.title,
     description: listing.description,
-    imageUrl: listing.imageUrl,
+    imageUrl: mainUrl,
+    images: (listing as any).images?.map((i: any) => ({
+      id: i.id,
+      url: i.url,
+      isPrimary: i.isPrimary,
+      position: i.position
+    })) || [],
+    masterProductImageUrl,
+    linkedMasterProductId,
+    linkedMasterSku,
     categoryId: listing.categoryId,
     status: listing.status,
     listingUrl: listing.listingUrl,
@@ -72,14 +132,15 @@ export function toListingView(listing: ListingWithRelations): MarketplaceListing
       currentSku: v.currentSku,
       price: v.price,
       stock: v.stock,
-      status: v.status
-    }))
+      status: v.status,
+      imageUrl: v.imageUrl || null
+    })),
+    linkedChannels
   };
 }
 
 /**
- * Lista anúncios persistidos no PostgreSQL com suas variações,
- * apenas da organização autenticada (fonte única persistida).
+ * Lista anúncios persistidos no PostgreSQL com suas variações e galeria de imagens.
  */
 export async function listMarketplaceListings(
   client: PrismaClient,
@@ -89,7 +150,22 @@ export async function listMarketplaceListings(
     where: { organizationId },
     include: {
       account: true,
-      variations: true
+      variations: true,
+      images: { orderBy: { position: 'asc' } },
+      mappings: {
+        include: {
+          masterProduct: {
+            include: {
+              mappings: {
+                include: {
+                  account: true,
+                  listing: true
+                }
+              }
+            }
+          }
+        }
+      }
     },
     orderBy: { externalListingId: 'asc' }
   });

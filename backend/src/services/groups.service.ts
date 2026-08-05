@@ -5,6 +5,7 @@ export interface GroupedProductView {
   id: string;
   masterSku: string;
   name: string;
+  imageUrl?: string | null;
   category?: string;
   totalStock: number;
   marketplacesCount: number;
@@ -21,6 +22,7 @@ export interface GroupedProductView {
     id: string;
     externalListingId: string;
     title: string;
+    imageUrl?: string | null;
     marketplace: string;
     accountName: string;
     status: string;
@@ -34,6 +36,7 @@ export interface GroupedProductView {
       price: number;
       stock: number;
       status: string;
+      imageUrl?: string | null;
     }>;
   }>;
 }
@@ -55,6 +58,7 @@ export interface UnlinkedListingView {
     price: number;
     stock: number;
     status: string;
+    imageUrl?: string | null;
   }>;
 }
 
@@ -69,6 +73,7 @@ export interface PendingMatchView {
     id: string;
     masterSku: string;
     name: string;
+    imageUrl?: string | null;
   };
   listing: {
     id: string;
@@ -76,11 +81,13 @@ export interface PendingMatchView {
     title: string;
     marketplace: string;
     accountName: string;
+    imageUrl?: string | null;
   };
   variation?: {
     id: string;
     variationName: string;
     sku: string;
+    imageUrl?: string | null;
   };
 }
 
@@ -175,7 +182,8 @@ export class GroupsService {
             sku: v.currentSku,
             price: v.price,
             stock: v.stock,
-            status: v.status
+            status: v.status,
+            imageUrl: v.imageUrl || null
           };
         });
 
@@ -183,6 +191,7 @@ export class GroupsService {
           id: listing.id,
           externalListingId: listing.externalListingId,
           title: listing.title,
+          imageUrl: listing.imageUrl || null,
           marketplace: account.marketplace,
           accountName: account.accountName,
           status: listing.status,
@@ -230,10 +239,12 @@ export class GroupsService {
       }
 
       if (matchesSearch && matchesMarketplace) {
+        const groupImageUrl = mp.imageUrl || (listings.find(l => l.imageUrl)?.imageUrl) || null;
         groups.push({
           id: mp.id,
           masterSku: mp.masterSku,
           name: mp.name,
+          imageUrl: groupImageUrl,
           category: mp.productType || 'Geral',
           totalStock,
           marketplacesCount: marketplacesSet.size,
@@ -261,7 +272,7 @@ export class GroupsService {
         marketplace: l.account.marketplace,
         accountName: l.account.accountName,
         status: l.status,
-        imageUrl: l.imageUrl,
+        imageUrl: l.imageUrl || null,
         variationsCount: l.variations.length,
         variations: l.variations.map(v => ({
           id: v.id,
@@ -270,7 +281,8 @@ export class GroupsService {
           sku: v.currentSku,
           price: v.price,
           stock: v.stock,
-          status: v.status
+          status: v.status,
+          imageUrl: v.imageUrl || null
         }))
       }));
 
@@ -320,26 +332,29 @@ export class GroupsService {
       return {
         mappingId: m.id,
         confidenceScore: m.confidenceScore || matchEval.confidenceScore,
-        matchStatus: m.mappingType || 'SUGGESTED',
-        reason: matchEval.reason,
-        compatibilities: matchEval.compatibilities,
-        divergences: matchEval.divergences,
+        matchStatus: m.mappingType || matchEval.matchLevel,
+        reason: matchEval.reason || 'Sugestão de correspondência inteligente',
+        compatibilities: matchEval.compatibilities || [],
+        divergences: matchEval.divergences || [],
         masterProduct: {
           id: m.masterProduct.id,
           masterSku: m.masterProduct.masterSku,
-          name: m.masterProduct.name
+          name: m.masterProduct.name,
+          imageUrl: m.masterProduct.imageUrl || null
         },
         listing: {
           id: m.listing.id,
           externalListingId: m.listing.externalListingId,
           title: m.listing.title,
           marketplace: m.account.marketplace,
-          accountName: m.account.accountName
+          accountName: m.account.accountName,
+          imageUrl: m.listing.imageUrl || null
         },
         variation: m.variation ? {
           id: m.variation.id,
           variationName: m.variation.variationName,
-          sku: m.variation.currentSku
+          sku: m.variation.currentSku,
+          imageUrl: m.variation.imageUrl || null
         } : undefined
       };
     });
@@ -497,4 +512,101 @@ export class GroupsService {
       unlinkedListings
     };
   }
+
+  /**
+   * Remove o vínculo de um anúncio com um produto mestre.
+   */
+  static async unlinkListing(client: PrismaClient, organizationId: string, masterProductId: string, marketplaceListingId: string): Promise<boolean> {
+    await client.productMapping.deleteMany({
+      where: {
+        organizationId,
+        masterProductId,
+        marketplaceListingId
+      }
+    });
+    return true;
+  }
+
+  /**
+   * Funde dois grupos de produtos mestres (migra todos os vínculos do grupo origem para o destino).
+   */
+  static async mergeGroups(client: PrismaClient, organizationId: string, sourceMasterProductId: string, targetMasterProductId: string): Promise<boolean> {
+    const target = await client.masterProduct.findUnique({ where: { id: targetMasterProductId } });
+    if (!target) throw new Error('Grupo destino não encontrado.');
+
+    // Atualiza todos os mapeamentos do grupo origem para o grupo destino
+    await client.productMapping.updateMany({
+      where: { organizationId, masterProductId: sourceMasterProductId },
+      data: { masterProductId: targetMasterProductId, updatedAt: new Date() }
+    });
+
+    // Remove o produto mestre origem
+    await client.masterProduct.delete({
+      where: { id: sourceMasterProductId }
+    });
+
+    return true;
+  }
+
+  /**
+   * Separa anúncios de um grupo mestre existente criando um novo grupo.
+   */
+  static async splitGroup(
+    client: PrismaClient,
+    organizationId: string,
+    sourceMasterProductId: string,
+    listingIdsToExtract: string[],
+    newGroupName: string,
+    newMasterSku: string
+  ): Promise<string> {
+    const newMasterProduct = await client.masterProduct.create({
+      data: {
+        organizationId,
+        name: newGroupName,
+        masterSku: newMasterSku,
+        status: 'ACTIVE'
+      }
+    });
+
+    await client.productMapping.updateMany({
+      where: {
+        organizationId,
+        masterProductId: sourceMasterProductId,
+        marketplaceListingId: { in: listingIdsToExtract }
+      },
+      data: {
+        masterProductId: newMasterProduct.id,
+        updatedAt: new Date()
+      }
+    });
+
+    return newMasterProduct.id;
+  }
+
+  /**
+   * Cria manualmente um novo grupo mestre e vincula os anúncios especificados.
+   */
+  static async createManualGroup(
+    client: PrismaClient,
+    organizationId: string,
+    name: string,
+    masterSku: string,
+    listingIds: string[]
+  ): Promise<string> {
+    const masterProduct = await client.masterProduct.create({
+      data: {
+        organizationId,
+        name,
+        masterSku,
+        status: 'ACTIVE'
+      }
+    });
+
+    for (const listingId of listingIds) {
+      await this.linkListing(client, organizationId, masterProduct.id, listingId);
+    }
+
+    return masterProduct.id;
+  }
 }
+

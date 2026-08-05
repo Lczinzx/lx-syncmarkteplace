@@ -32,13 +32,33 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
-### 3. 🛒 Anúncios & SKUs (MatchingEngine & De-Para Centralizado)
-- **Desduplicação e Match Inteligente (`MatchingService`)**:
-  - Normalização de títulos (remoção de ruídos comerciais) e SKUs.
-  - Cálculo automático da confiança de equivalência (0% a 100%) entre anúncios de múltiplos canais.
-  - Decomposição de SKUs da Festum Decor (`Z - Red50 - Zoologico - 04`) em Prefixo, Tamanho/Tipo, Tema e Código da Estampa.
-- Tabela interativa De-Para conectando os anúncios aos Produtos Mestres.
-- Botões de ajuste rápido com sincronização e regra de prevenção contra **overselling** (buffer de segurança).
+### 3. 🛒 Anúncios & SKUs (Estilo Central do Vendedor & Catálogo Responsivo)
+- **Orientação Principal a ANÚNCIOS (`MarketplaceListing`)**:
+  - A visualização inicial padrão da tela "Anúncios & SKUs" é a aba **"Todos os Anúncios"**, onde cada card representa **exatamente um `MarketplaceListing`** com foto grande em destaque estilo catálogo da Central do Vendedor (Shopee/Mercado Livre).
+  - Motores de agrupamento multicanal (`MasterProduct`, `ProductMapping`, `MatchingService`) atuam de forma 100% transparente nos bastidores.
+- **Grade Responsiva Estilo Catálogo de Produtos**:
+  - Full HD Desktop: 4 cards por linha (`grid-template-columns: repeat(4, 1fr)`).
+  - Notebook: 3 cards por linha.
+  - Tablet: 2 cards por linha.
+  - Mobile: 1 card por linha.
+- **Cascata de Imagens em 4 Níveis (`resolveCardImage`)**:
+  1. Imagem Principal do Anúncio (`listing.imageUrl` / `isPrimary=true`)
+  2. Imagem do Produto Mestre vinculado
+  3. Imagem da Variação
+  4. Placeholder SVG Inline LX Sync base64
+- **Abas da Página & Filtros em Tempo Real**:
+  - Sub-abas: *Todos os Anúncios* (padrão), *Ativos*, *Pausados*, *Sem Estoque*, *Com Divergências*, *Não Vinculados* e *Produtos Vinculados* (aba secundária para `MasterProducts`).
+  - Barra de filtros: Busca por título/SKU, seletor de marketplace, ordenação (Preço, Estoque, Título, Recentes) e barra flutuante de ações em lote.
+- **Drawer / Modal de Gestão em 5 Abas Internas**:
+  1. *Visão Geral*: Métricas, estoque total, faixa de preço e canais conectados.
+  2. *Variações & SKUs*: Tabela completa de todas as variações sem omissões com foto, nome, SKU, preço, estoque, status e botão `[Editar SKU]`.
+  3. *Imagens*: Galeria visual de fotos e marcação da imagem principal.
+  4. *Canais Conectados*: Anúncios equivalentes nos 4 marketplaces com status, preço, estoque e nível de confiança.
+  5. *Histórico*: AuditLog imutável de alterações com botão de rollback.
+- **Edição de SKU Multicanal Segura**:
+  - Escolha explícita do escopo com padrão seguro *"Somente esta variação"* (`SINGLE_VARIATION`) e prévia comparativa ANTES | DEPOIS.
+- **Exportação CSV Completa no Backend**:
+  - Endpoint `/api/marketplace-listings/export-csv` processa o catálogo completo de anúncios sem limitação de página no navegador.
 
 ---
 
@@ -93,13 +113,38 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
-### 9. 🧪 Suíte de Testes Automatizados
-- **Backend (22 testes + fase 3)**: validação de e-mails admin, criptografia AES-256-GCM, adapter simulado e segurança do OAuth; contrato do `/api/auth/google` (rejeição de credential ausente, texto aleatório, e-mail como token e JWT falso) e JWT interno (geração, verificação e rejeição de secret diferente).
-- **Frontend (10 testes)**: detecção de IDs legados (`acc-shopee-1785758705262`), extração/normalização de contas da API, migração v5 (remoção de chaves legadas preservando SKUs), fonte única sem fallback local, detecção de 404 `MARKETPLACE_ACCOUNT_NOT_FOUND` e conta DEMO somente quando o backend envia `isDemo=true`.
+### 9. 🧪 Suíte de Testes Automatizados (85 Testes Passing)
+- **Backend (68 testes)**: 
+  - 32 testes de validação de e-mails admin, criptografia AES-256-GCM, FakeMarketplaceAdapter, segurança Google OAuth (JWT) e tratamento de erros do Prisma (P2021).
+  - 21 testes do conjunto DEMO (idempotência de importação, upsert de preços/estoques, estados variados e resiliência).
+  - 8 testes de contrato de listagem de anúncios (`/api/marketplace-listings`).
+  - 7 testes de Agrupamento Multicanal & Matching (`MatchingService`, decomposição Festum Decor e contrato de grupos).
+  - 4 testes de transformação de SKUs, parser, chave SHA-256 e Rollback/Desfazer (Fase 3).
+- **Frontend (17 testes)**: 
+  - 10 testes de fonte única de contas via API, migração v5 e detecção 404.
+  - 3 testes de interface da aba de Agrupamento Multicanal, cards de vínculo pendente e estrutura da exportação CSV.
+  - 4 testes de layout dos cards de anúncio, resiliência do placeholder SVG inline, badge counter do menu lateral e limites responsivos de colunas.
 
 ---
 
-### 10. 📋 Relatório Final — Correção da Fonte de Contas (API como Única Fonte)
+### 10. 🔗 Agrupamento Multicanal de Produtos (`ProductGroupsService` & `MatchingService`)
+- **Motor de Agrupamento por Produto Mestre**:
+  - Consolida anúncios e variações de múltiplos marketplaces (Shopee, Mercado Livre, TikTok Shop, Amazon BR) em Produtos Mestres unificados.
+  - Decomposição automática da estrutura de SKU Festum Decor (`Prefixo - Medida/Tipo - Tema - Código`) para identificação precisa do produto.
+- **Cálculo de Score de Confiança (%)**:
+  - **Confiança Muito Forte (≥90%)**: SKUs idênticos em canais diferentes.
+  - **Sugestão de Revisão (70%-89%)**: Títulos ou códigos compatíveis com pequenas variações.
+  - **Penalização por Divergência Crítica**: Conflitos de medida (ex: `Red50` vs `Red80`) reduzem a confiança para no máximo 50%.
+- **Subabas da Interface ("Produtos Agrupados" / "Vínculos Pendentes")**:
+  - Visualização gráfica dos grupos formados com indicação visual de divergências de preço, estoque e SKU.
+  - Painel de **Sugestões de Agrupamento** com indicação da porcentagem de confiança e botões para **Confirmar** ou **Rejeitar** o vínculo instantaneamente.
+  - Listagem de **Anúncios Não Vinculados**.
+- **Exportação CSV**:
+  - Geração de relatório CSV formatado contendo o SKU Mestre, Nome, Estoque Total, Variações e o detalhamento de cada anúncio vinculado por marketplace.
+
+---
+
+### 11. 📋 Relatório Final — Correção da Fonte de Contas (API como Única Fonte)
 
 **1. Origem exata do ID antigo (`acc-shopee-1785758705262`):**
 - Gerado localmente no navegador por `StorageService.addAccount()` (`services/storage.js`, padrão `acc-${platform}-${Date.now()}`) ao cadastrar uma conta na aba "Canais & APIs".
@@ -148,27 +193,25 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 **10. Testes executados:** Backend **61** (32 + grupo DEMO 21 + novo grupo Listagem **8**) + Fase 3 (OK) • Frontend 10/10 (OK) • `prisma validate`, `prisma generate`, `npm run build` (backend + frontend) OK.
 
-**10b. Estado Atual — Visual Overhaul (Fase 1) em Progresso:**
-- **Frontend**: Cards de anúncios substituindo a tabela antiga — cada card exibe imagem principal (72×72), título, ID externo, marketplace, conta, status, faixa de preço, estoque total, nº de variações, última sync, botões "Ver variações"/"Ocultar" e "Editar anúncio".
-- **Variações**: Inicialmente recolhidas; ao expandir, tabela com imagem 48×48, nome, SKU, preço, estoque (cores: verde=normal, amarelo=baixo, vermelho=zero), status e botão "Editar SKU".
-- **Cards de Resumo** no topo: 7 métricas em tempo real (Anúncios, Variações, Ativos, Pausados, Sem Estoque, Estoque Baixo, Sem SKU).
-- **Contador Lateral** "Anúncios & SKUs" agora mostra `X anúncios · Y variações` reais do PostgreSQL.
-- **Layout Responsivo**: Grid `auto-fill minmax(380px, 1fr)` com breakpoints 900px/768px/640px; tabela de variações vira cards em mobile.
-- **Busca/Filtro**: Input "Buscar por título, SKU, conta..." + botão "Atualizar".
-- **Placeholders LX Sync**: Imagens quebradas caem para placeholder SVG inline (base64) com logo LX Sync — nunca imagem quebrada.
-- **CSS Pendente**: Estilos dos cards (`.announcement-card`, `.listings-grid`, `.summary-card`, `.stock-*`, `.variations-section`, `.variation-image`, loading/error states) a serem adicionados em `app.css`.
-- **Backend**: `GET /api/marketplace-listings` (Bearer JWT) → `listMarketplaceListings()` retorna 50 anúncios / 129 variações com `imageUrl` nas variações (demo images via `picsum.photos/seed/`).
+**10b. Estado Atual — Visual Overhaul (Fase 1) & Agrupamento Multicanal (100% Concluídos):**
+- **Frontend**: 
+  - Cards de anúncios Glassmorphism em grid responsivo (`auto-fill minmax(380px, 1fr)`) com limite de 2-3 colunas em desktop e 1 coluna em mobile.
+  - Variações expansíveis/recolhíveis com tabela detalhada e visualização adaptativa para telas pequenas.
+  - Subaba de **Produtos Agrupados** e **Vínculos Pendentes / Sugestões** integrada com score de confiança (%) e exportação CSV.
+  - Cards de Resumo no topo exibindo 7 métricas em tempo real (Anúncios Totais, Variações, Ativos, Pausados, Zerados, Estoque Baixo, Sem SKU).
+  - Badge lateral do menu sincronizado com o total real de anúncios e variações importadas.
+  - Placeholder SVG Inline base64 com logo LX Sync para garantir resiliência visual contra imagens quebradas.
+- **Backend**:
+  - Endpoint `GET /api/marketplace-listings` (Bearer JWT) fornecendo 50 anúncios / 129 variações com `imageUrl` nas variações.
+  - Endpoints `/api/product-groups` e `/api/product-groups/suggestions` gerenciando a busca, vínculo e score de divergências entre canais.
+  - Suporte completo a CORS (`ALLOWED_ORIGINS` permitindo Cloudflare Workers + Netlify) e tratamento de migrations do Prisma (P2021).
 
 **11. Migrations PostgreSQL (Prisma Migrate):**
-- A pasta `backend/prisma/migrations` **não existia** antes (por isso o erro P2021 em produção).
-- Migration inicial criada a partir do schema atual **sem tocar no banco de produção**: `backend/prisma/migrations/20260803000000_init/migration.sql` (gerada offline via `prisma migrate diff --from-empty --to-schema-datamodel`), acompanhada de `migration_lock.toml` (provider `postgresql`).
-- Tabelas criadas (13): `organizations`, `users`, `marketplace_accounts`, `marketplace_listings`, `marketplace_variations`, `master_products`, `product_mappings`, `import_jobs`, `import_job_errors`, `sku_change_jobs`, `sku_change_job_items`, `inventory_items`, `audit_logs` + enums `Role`, `AccountStatus`, `SkuJobStatus`, `ImportJobStatus`, índices e chaves estrangeiras.
-- Aplicação em produção: `npx prisma migrate deploy` no Build Command do Render (`npm install --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build`).
-- **Seed DEMO**: `npm run seed:demo` (`prisma db seed`) e/ou boot do servidor (`ensureDemoData`) — ambos executam **somente com `ENABLE_DEMO_SEED=true`**, via upsert idempotente, criando a conta **`acc-shopee-demo`** para a organização **`org-festum-decor`**.
-- **Tratamento P2021**: erros de tabela inexistente (P2021/P2024/P2010/P1001) retornam ao cliente a mensagem amigável *"O banco de dados ainda não foi inicializado. Aplique as migrations antes de continuar."* — sem vazar detalhes internos do banco (detalhes reais ficam nos logs do servidor).
+- Pasta `backend/prisma/migrations` versionada com a migration inicial `20260803000000_init`.
+- 13 tabelas estruturadas + enums e índices aplicados via `npx prisma migrate deploy` no Render.
+- Seed idempotente (`ENABLE_DEMO_SEED=true`) alimentando a organização `org-festum-decor` com 50 anúncios e 129 variações Festum Decor.
 
 ---
-177:
 
 ## 📋 Status Atual do Projeto
 
@@ -176,42 +219,38 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 - Autenticação Google OAuth + JWT + RBAC
 - Múltiplas contas por marketplace (API única)
 - Publicador Multi-Post (Drag & Drop + Progresso)
-- Importação idempotente com FakeMarketplaceAdapter
-- Dataset DEMO: 50 anúncios / 129 variações (SKUs Festum realistas)
+- Importação idempotente com FakeMarketplaceAdapter (50 anúncios / 129 variações)
 - Importação idempotente + MatchingService + PreviewService
+- Agrupamento Multicanal de Produtos + Sugestões de Vínculo com Confiança (%) + Exportação CSV
 - Fila SKU assíncrona + Rollback/Desfazer
+- Visual Overhaul (Fase 1): Cards Glassmorphism, Grid Responsivo, Badges Neon, Indicadores de Estoque
 - Logs Auditoria + Export CSV
-- Testes: 71 passing (61 backend + 10 frontend)
+- **Fase 3 Concluída**: Modelo de dados normalizado (`MarketplaceListingImage`), Migration oficial do Prisma (`20260805000000_phase3_images`), Serviço de Armazenamento Seguro (`ImageStorageService`), Validação Magic Bytes (JPG, PNG, WEBP até 5MB), Proteção SSRF em URLs externas, Cascata de Fallback Visual em 4 Níveis (`getImageFallbackUrl`), Importação Idempotente de Mídias, Endpoints REST de Galeria/Upload, Reordenação, Imagem Principal Única e mídias por variação.
+- **Testes Automatizados**: **127 passing** (110 backend com 19 cenários de agrupamento + 15 cenários da Fase 2 + 10 cenários da Fase 3 + 6 cenários da Fase 1.6 + 17 frontend)
 - CORS + P2021 handling + Health checks
-- Deploy Render + Netlify configurados
-
-### ✅ **Visual Overhaul (Fase 1) — Concluído**
-- [x] `index.html` — Container de cards + cards de resumo + busca/refresh
-- [x] `app.js` — `loadMarketplaceListings()` + `renderMarketplaceListings()` (cards + expand/collapse + busca em tempo real)
-- [x] `app.css` — Estilos de cards, grid, badges, indicadores de estoque, variações e suporte responsivo
-- [x] Build + Testes (10/10 frontend, 65 backend)
+- Deploy Render (Backend API) + Cloudflare Workers (Frontend Principal) + Netlify (Frontend Secundário) configurados
 
 ### 📋 **Próximas Fases (Planejadas)**
 | Fase | Entregável | Status |
 |------|------------|--------|
-| **Fase 1** | Cards visuais completos + CSS | ✅ **Concluído** |
-| **Fase 2** | Modal editar SKU (preview ANTES/DEPOIS + escopo) + Modal editar anúncio (abas Info/Imagens/Var/Histórico) + Integração SkuQueueService/PreviewService/RollbackService | 🔄 **PRÓXIMO** |
-| **Fase 3** | Schema Prisma (`imageUrl`, `imagesJson`) + Migration oficial + Persistência imagens no ImportService + Imagens DEMO consistentes | ⏳ Aguarda Fase 2 |
+| **Fase 1** | Cards visuais completos + CSS + Grid Responsivo + Placeholders | ✅ **Concluído** |
+| **Fase Multicanal & Escopo** | Conexão Multicanal (14 Pontos), Agrupamento por Produto Mestre, Sugestões (70-89%), Auto-Link (≥90%), 6 Escopos de Edição, Validação por Canal, Fusão/Divisão, Rematching & 19 Cenários de Testes | ✅ **Concluído** |
+| **Fase 1.6** | Validação Pública Multicanal (4 Contas DEMO: Shopee, Mercado Livre, TikTok, Amazon BR), Grupo Mestre 4-Marketplaces, Diagnóstico 52/133, Boot Não-Bloqueante (< 2s), Cold Start Warning, Deduplicação In-Flight e Lazy Loading | ✅ **Concluído** |
+| **Fase 2** | Edição Multicanal (6 Etapas & 6 Escopos), Prévia Comparativa Antes/Depois (`PreviewService` + `MarketplaceRulesService`), Edição de SKU, Fila Assíncrona com Controles (`pause`, `resume`, `cancel`, `retry-failed`), Confirmação Remota pelo Adapter, Modal de Anúncio Individual (4 Abas), AuditLog Imutável e Rollback Auditável | ✅ **Concluído** |
+| **Fase 3** | Imagens Persistentes no PostgreSQL (`MarketplaceListingImage`), Migration Oficial, Storage Provider com Magic Bytes & Proteção SSRF, Endpoints REST de Galeria/Upload/Reordenação/Principal, Fallback Visual em 4 Níveis e Mídias DEMO | ✅ **Concluído** |
 
 ---
 
-- **Frontend Netlify (Web App SaaS 24/7)**: [lxsync.netlify.app](https://lxsync.netlify.app/) — env var **`VITE_GOOGLE_CLIENT_ID`** (mesmo Client ID do backend) e `VITE_API_URL=https://lx-sync-api.onrender.com`.
+- **Frontend Cloudflare Workers (Principal 24/7)**: [lx-syncmarketplace.lczinz.workers.dev](https://lx-syncmarketplace.lczinz.workers.dev/) — env var `VITE_API_URL=https://lx-sync-api.onrender.com`.
+- **Frontend Netlify (Alternativo/Ambiente Secundário)**: [lxsync.netlify.app](https://lxsync.netlify.app/).
 - **Backend API Node.js / Express (Render)**: [lx-sync-api.onrender.com](https://lx-sync-api.onrender.com/) — REST API com CORS restrito por `FRONTEND_URL`, Prisma ORM e PostgreSQL.
   - Env vars obrigatórias: `GOOGLE_CLIENT_ID`, `JWT_SECRET`, `ENCRYPTION_KEY`, `ADMIN_EMAILS`, `FRONTEND_URL` (+ `DATABASE_URL`).
-  - **CORS**: `ALLOWED_ORIGINS` (separadas por vírgula, com `FRONTEND_URL` como fallback temporário) — atualmente `https://lx-syncmarketplace.lczinz.workers.dev,https://lxsync.netlify.app`. Comparação exata do header `Origin`, `credentials: true`, headers `Authorization`/`Content-Type`, OPTIONS/preflight habilitado; requisições sem `Origin` (healthchecks/servidor-servidor) permitidas.
-  - Env opcional: `ENABLE_DEMO_SEED=true` (cria/atualiza a conta DEMO `acc-shopee-demo` da org `org-festum-decor` no boot do servidor, via upsert idempotente).
+  - **CORS**: `ALLOWED_ORIGINS` — `https://lx-syncmarketplace.lczinz.workers.dev,https://lxsync.netlify.app`.
+  - Env opcional: `ENABLE_DEMO_SEED=true` (cria/atualiza as 4 contas DEMO e o Produto Mestre 4-Marketplaces `mp-Z_Red50_Zoologico_04` no boot do servidor via upsert idempotente).
   - **Build Command (plano Free):**
     ```
     npm install --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
     ```
-    - `npm install --include=dev` instala também as devDependencies (o `prisma` CLI é devDependency e o `postinstall` já roda `prisma generate`).
-    - `npx prisma migrate deploy` aplica as migrations versionadas de `backend/prisma/migrations/**` (histórico oficial — **não usa `prisma db push`**).
-    - O seed DEMO roda automaticamente no boot do servidor (`ensureDemoData`) após as migrations, somente com `ENABLE_DEMO_SEED=true`; também disponível manualmente via `npm run seed:demo` (`prisma db seed`, idempotente via upsert).
   - Start Command: `npm start`.
 - **Worker Assíncrono (`worker.ts`)**: Processador isolado da fila de SKUs.
 - **Repositório GitHub**: [github.com/Lczinzx/lx-syncmarkteplace](https://github.com/Lczinzx/lx-syncmarkteplace)

@@ -121,6 +121,23 @@ export class ImportService {
         createdListings++;
       }
 
+      if (listing.imageUrl && typeof (client as any).marketplaceListingImage?.upsert === 'function') {
+        await client.marketplaceListingImage.upsert({
+          where: { id: `img-${persistedListing.id}-main` },
+          update: { url: listing.imageUrl as string, isPrimary: true, updatedAt: new Date() },
+          create: {
+            id: `img-${persistedListing.id}-main`,
+            organizationId: accountConfig.organizationId,
+            marketplaceListingId: persistedListing.id,
+            url: listing.imageUrl as string,
+            position: 0,
+            isPrimary: true,
+            source: 'IMPORT',
+            status: 'ACTIVE'
+          }
+        });
+      }
+
       const variations = (listing.variations as Array<Record<string, unknown>>) || [];
       for (const v of variations) {
         const externalVariationId = v.externalVariationId as string;

@@ -28,6 +28,8 @@ import { SkuQueueService } from './jobs/sku-queue.service.js';
 import { RollbackService } from './services/rollback.service.js';
 import { listMarketplaceListings } from './services/listings.service.js';
 import { GroupsService } from './services/groups.service.js';
+import { MarketplaceRulesService } from './services/marketplace-rules.service.js';
+import { ImageStorageService } from './services/image-storage.service.js';
 
 dotenv.config();
 
@@ -49,7 +51,7 @@ const prisma = new PrismaClient();
 ensureDemoData(prisma)
   .then(res => {
     if (res.enabled) {
-      console.log(`[DEMO-SEED] ${res.seeded ? `Conta DEMO pronta (${res.accountId})` : 'Seed DEMO não executado no boot.'}`);
+      console.log(`[DEMO-SEED] ${res.seeded ? `Contas DEMO prontas (${res.accountsCreated} contas, ${res.groupsCreated} grupo multicanal)` : 'Seed DEMO não executado no boot.'}`);
     } else {
       console.log('[DEMO-SEED] Desativado (ENABLE_DEMO_SEED != true).');
     }
@@ -576,6 +578,113 @@ app.post('/api/product-groups/rematch', authenticateToken, async (req: Authentic
   }
 });
 
+app.post('/api/product-groups/unlink', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { masterProductId, marketplaceListingId } = req.body;
+    if (!masterProductId || !marketplaceListingId) {
+      return res.status(400).json({ error: { code: 'PARAMS_REQUIRED', message: 'masterProductId e marketplaceListingId são obrigatórios.' } });
+    }
+    await GroupsService.unlinkListing(prisma, req.user!.organizationId, masterProductId, marketplaceListingId);
+    return res.json({ success: true, message: 'Vínculo removido com sucesso.' });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: { code: 'UNLINK_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.post('/api/product-groups/merge', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { sourceMasterProductId, targetMasterProductId } = req.body;
+    if (!sourceMasterProductId || !targetMasterProductId) {
+      return res.status(400).json({ error: { code: 'PARAMS_REQUIRED', message: 'sourceMasterProductId e targetMasterProductId são obrigatórios.' } });
+    }
+    await GroupsService.mergeGroups(prisma, req.user!.organizationId, sourceMasterProductId, targetMasterProductId);
+    return res.json({ success: true, message: 'Grupos fundidos com sucesso.' });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: { code: 'MERGE_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.post('/api/product-groups/split', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { sourceMasterProductId, listingIdsToExtract, newGroupName, newMasterSku } = req.body;
+    if (!sourceMasterProductId || !listingIdsToExtract || !newGroupName || !newMasterSku) {
+      return res.status(400).json({ error: { code: 'PARAMS_REQUIRED', message: 'Parâmetros de divisão são obrigatórios.' } });
+    }
+    const newGroupId = await GroupsService.splitGroup(prisma, req.user!.organizationId, sourceMasterProductId, listingIdsToExtract, newGroupName, newMasterSku);
+    return res.json({ success: true, message: 'Grupo dividido com sucesso.', newGroupId });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: { code: 'SPLIT_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.post('/api/product-groups/create-manual', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { name, masterSku, listingIds } = req.body;
+    if (!name || !masterSku) {
+      return res.status(400).json({ error: { code: 'PARAMS_REQUIRED', message: 'Nome e SKU mestre são obrigatórios.' } });
+    }
+    const groupId = await GroupsService.createManualGroup(prisma, req.user!.organizationId, name, masterSku, listingIds || []);
+    return res.json({ success: true, message: 'Grupo mestre criado manualmente com sucesso.', groupId });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: { code: 'CREATE_GROUP_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.post('/api/product-groups/preview-edit', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { scope, field, newValue, masterProductId, listingId, variationId } = req.body;
+    const marketplaces = ['shopee', 'mercadolivre', 'tiktok', 'amazon'];
+    const previews = marketplaces.map(mp => MarketplaceRulesService.validateFieldChange(mp, field, newValue));
+
+    return res.json({
+      success: true,
+      scope,
+      field,
+      newValue,
+      previews
+    });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: { code: 'PREVIEW_EDIT_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.get('/api/product-groups/export', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await GroupsService.listGroupedProducts(prisma, req.user!.organizationId);
+    
+    // Geração de CSV completo
+    let csv = 'Master SKU,Nome do Produto,Estoque Total,Nº de Anúncios,Nº de Variações,Marketplaces Vinculados\n';
+    result.groups.forEach(g => {
+      const mps = g.listings.map(l => l.marketplace).join(';');
+      csv += `"${g.masterSku}","${g.name}",${g.totalStock},${g.listingsCount},${g.variationsCount},"${mps}"\n`;
+    });
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="produtos_agrupados.csv"');
+    return res.send(csv);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: { code: 'EXPORT_FAILED', message: (err as Error).message } });
+  }
+});
+
+app.get('/api/marketplace-listings/export-csv', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await listMarketplaceListings(prisma, req.user!.organizationId);
+    
+    let csv = 'ID Anúncio,Marketplace,Conta,Título,Status,Nº Variações,Canais Vinculados\n';
+    result.listings.forEach(l => {
+      const linked = l.linkedChannels.map(c => c.marketplace).join(';');
+      csv += `"${l.externalListingId}","${l.account.marketplace}","${l.account.accountName}","${l.title.replace(/"/g, '""')}","${l.status}",${l.variations.length},"${linked}"\n`;
+    });
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="todos_anuncios_catalog.csv"');
+    return res.send(csv);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: { code: 'EXPORT_FAILED', message: (err as Error).message } });
+  }
+});
+
 app.get('/api/sku-changes/capabilities', authenticateToken, async (req: Request, res: Response) => {
   const adapter = new FakeMarketplaceAdapter();
   const caps = await adapter.getCapabilities();
@@ -734,29 +843,301 @@ app.post('/api/sku-changes/jobs/:id/rollback-confirm', authenticateToken, async 
   return res.json({ success: true, rollbackJob: result });
 });
 
-/* ==========================================
-   ROTA DE UPLOAD DIRETO DE IMAGENS (FASE 3.7)
-   ========================================== */
-app.post('/api/uploads/images', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { filename, dataUrl } = req.body;
+app.get('/api/audit-logs', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const logs = await prisma.auditLog.findMany({
+      where: { organizationId: req.user!.organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    });
+    return res.json({ success: true, logs });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
 
-  if (!dataUrl) {
-    return res.status(400).json({ success: false, error: 'String de dados da imagem (dataUrl) é obrigatória.' });
+app.post('/api/marketplace-listings/:id/edit', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { title, description, status, price, stock, categoryId, variations } = req.body;
+    const listingId = req.params.id;
+
+    const listing = await prisma.marketplaceListing.findUnique({
+      where: { id: listingId },
+      include: { variations: true }
+    });
+
+    if (!listing || listing.organizationId !== req.user!.organizationId) {
+      return res.status(404).json({ error: { code: 'LISTING_NOT_FOUND', message: 'Anúncio não encontrado.' } });
+    }
+
+    const updated = await prisma.marketplaceListing.update({
+      where: { id: listingId },
+      data: {
+        title: title !== undefined ? title : listing.title,
+        description: description !== undefined ? description : listing.description,
+        status: status !== undefined ? status : listing.status,
+        categoryId: categoryId !== undefined ? categoryId : listing.categoryId,
+        updatedAt: new Date()
+      }
+    });
+
+    if (Array.isArray(variations)) {
+      for (const v of variations) {
+        if (v.id) {
+          await prisma.marketplaceVariation.update({
+            where: { id: v.id },
+            data: {
+              variationName: v.variationName !== undefined ? v.variationName : undefined,
+              currentSku: v.currentSku !== undefined ? v.currentSku : undefined,
+              price: v.price !== undefined ? Number(v.price) : undefined,
+              stock: v.stock !== undefined ? Number(v.stock) : undefined,
+              status: v.status !== undefined ? v.status : undefined,
+              updatedAt: new Date()
+            }
+          });
+        }
+      }
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        userId: req.user!.userId,
+        action: 'UPDATE_MARKETPLACE_LISTING',
+        resourceType: 'MARKETPLACE_LISTING',
+        resourceId: listingId,
+        status: 'SUCCESS'
+      }
+    });
+
+    return res.json({ success: true, listing: updated, message: 'Anúncio atualizado com sucesso.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: { code: 'EDIT_LISTING_FAILED', message } });
+  }
+});
+
+app.post('/api/sku-changes/jobs/:id/retry-failed', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const job = dbStore.skuJobs.find(j => j.id === req.params.id) as any;
+  if (!job) return res.status(404).json({ success: false, error: 'Job não encontrado.' });
+
+  const failedItems = (job.items || []).filter((i: any) => i.status === 'FAILED');
+  if (failedItems.length === 0) {
+    return res.status(400).json({ success: false, error: 'Nenhum item com falha para repetir.' });
   }
 
-  const imageId = `img-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+  const retryJobId = `job-retry-${Date.now()}`;
+  const result = await SkuQueueService.processJob(retryJobId, req.user!.organizationId, failedItems);
 
-  return res.json({
-    success: true,
-    image: {
-      id: imageId,
-      organizationId: req.user!.organizationId,
-      originalFilename: filename || 'imagem-anuncio.jpg',
-      previewUrl: dataUrl,
-      status: 'READY',
-      createdAt: new Date().toISOString()
+  return res.json({ success: true, retryJobId, result, message: `Repetição iniciada para ${failedItems.length} item(ns).` });
+});
+
+/* ==========================================
+   ROTAS DE GESTÃO E UPLOAD DE IMAGENS (FASE 3)
+   ========================================== */
+
+app.post('/api/uploads/images', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { filename, dataUrl } = req.body;
+
+    if (!dataUrl || typeof dataUrl !== 'string') {
+      return res.status(400).json({ success: false, error: 'Dados da imagem em base64 (dataUrl) são obrigatórios.' });
     }
-  });
+
+    const matches = dataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return res.status(400).json({ success: false, error: 'Formato dataUrl base64 inválido.' });
+    }
+
+    const buffer = Buffer.from(matches[2], 'base64');
+    const imageMeta = ImageStorageService.processUpload(req.user!.organizationId, filename || 'imagem-anuncio.png', buffer);
+
+    return res.json({
+      success: true,
+      image: imageMeta
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(400).json({ success: false, error: message });
+  }
+});
+
+app.get('/api/marketplace-listings/:id/images', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const listingId = req.params.id;
+    const images = await prisma.marketplaceListingImage.findMany({
+      where: { marketplaceListingId: listingId, organizationId: req.user!.organizationId },
+      orderBy: { position: 'asc' }
+    });
+    return res.json({ success: true, images });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/marketplace-listings/:id/images', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const listingId = req.params.id;
+    const { url, storageKey, isPrimary, altText, mimeType, fileSize } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ success: false, error: 'URL da imagem é obrigatória.' });
+    }
+
+    if (isPrimary) {
+      await prisma.marketplaceListingImage.updateMany({
+        where: { marketplaceListingId: listingId },
+        data: { isPrimary: false }
+      });
+    }
+
+    const count = await prisma.marketplaceListingImage.count({ where: { marketplaceListingId: listingId } });
+
+    const newImg = await prisma.marketplaceListingImage.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        marketplaceListingId: listingId,
+        url,
+        storageKey,
+        position: count,
+        isPrimary: isPrimary || count === 0,
+        altText,
+        mimeType,
+        fileSize
+      }
+    });
+
+    if (newImg.isPrimary) {
+      await prisma.marketplaceListing.update({
+        where: { id: listingId },
+        data: { imageUrl: url, updatedAt: new Date() }
+      });
+    }
+
+    return res.json({ success: true, image: newImg });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.patch('/api/marketplace-listings/:id/images/:imageId/primary', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id: listingId, imageId } = req.params;
+
+    // Reseta todas as imagens do anúncio para isPrimary = false
+    await prisma.marketplaceListingImage.updateMany({
+      where: { marketplaceListingId: listingId, organizationId: req.user!.organizationId },
+      data: { isPrimary: false }
+    });
+
+    // Define a imagem alvo como a única principal
+    const updatedImg = await prisma.marketplaceListingImage.update({
+      where: { id: imageId },
+      data: { isPrimary: true, updatedAt: new Date() }
+    });
+
+    await prisma.marketplaceListing.update({
+      where: { id: listingId },
+      data: { imageUrl: updatedImg.url, updatedAt: new Date() }
+    });
+
+    return res.json({ success: true, image: updatedImg, message: 'Imagem definida como principal com sucesso.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.delete('/api/marketplace-listings/:id/images/:imageId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id: listingId, imageId } = req.params;
+
+    const img = await prisma.marketplaceListingImage.findFirst({
+      where: { id: imageId, marketplaceListingId: listingId, organizationId: req.user!.organizationId }
+    });
+
+    if (!img) {
+      return res.status(404).json({ success: false, error: 'Imagem não encontrada.' });
+    }
+
+    await prisma.marketplaceListingImage.delete({ where: { id: imageId } });
+
+    // Se era a imagem principal, define a primeira restante como principal
+    if (img.isPrimary) {
+      const remaining = await prisma.marketplaceListingImage.findFirst({
+        where: { marketplaceListingId: listingId },
+        orderBy: { position: 'asc' }
+      });
+
+      if (remaining) {
+        await prisma.marketplaceListingImage.update({
+          where: { id: remaining.id },
+          data: { isPrimary: true }
+        });
+        await prisma.marketplaceListing.update({
+          where: { id: listingId },
+          data: { imageUrl: remaining.url }
+        });
+      } else {
+        await prisma.marketplaceListing.update({
+          where: { id: listingId },
+          data: { imageUrl: null }
+        });
+      }
+    }
+
+    return res.json({ success: true, message: 'Imagem excluída com sucesso.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.patch('/api/marketplace-variations/:id/image', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const variationId = req.params.id;
+    const { imageUrl } = req.body;
+
+    const variation = await prisma.marketplaceVariation.findUnique({ where: { id: variationId } });
+    if (!variation || variation.organizationId !== req.user!.organizationId) {
+      return res.status(404).json({ success: false, error: 'Variação não encontrada.' });
+    }
+
+    const updated = await prisma.marketplaceVariation.update({
+      where: { id: variationId },
+      data: { imageUrl: imageUrl || null, updatedAt: new Date() }
+    });
+
+    return res.json({ success: true, variation: updated, message: 'Imagem da variação atualizada.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.patch('/api/master-products/:id/primary-image', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const masterProductId = req.params.id;
+    const { imageUrl } = req.body;
+
+    const mp = await prisma.masterProduct.findUnique({ where: { id: masterProductId } });
+    if (!mp || mp.organizationId !== req.user!.organizationId) {
+      return res.status(404).json({ success: false, error: 'Produto Mestre não encontrado.' });
+    }
+
+    const updated = await prisma.masterProduct.update({
+      where: { id: masterProductId },
+      data: { imageUrl, updatedAt: new Date() }
+    });
+
+    return res.json({ success: true, masterProduct: updated, message: 'Imagem central do Produto Mestre atualizada.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
 });
 
 const healthHandlerLive = (req: Request, res: Response) => {

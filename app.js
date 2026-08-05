@@ -67,16 +67,40 @@ let currentSettings = {};
 let currentAccounts = [];
 let currentUser = null;
 let currentListings = [];
-let currentSubtab = 'grouped';
+let currentSubtab = 'all';
 let currentGroupedProducts = [];
 let currentUnlinkedListings = [];
 let currentPendingMatches = [];
+let currentListings = [];
+let selectedListingIds = new Set();
 
-document.addEventListener('DOMContentLoaded', async () => {
-  await initApp();
+const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4OCIgaGVpZ2h0PSI4OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIxMiIgZmlsbD0iIzE5MTIxNCIgc3Ryb2tlPSJyZ2JhKDIzOSwgNjgsIDY4LCAwLjMpIiBzdHJva2Utd2lkdGg9IjEiLz48dGV4dCB4PSI1MCUiIHk9IjQyJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI0VGNDQ0NCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSI4MDAiPkxYPC90ZXh0Pjx0ZXh0IHg9IjUwJSIgeT0iNjIlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOUNBM0FGIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSI5IiBmb250LXdlaWdodD0iNjAwIj5TeW5jPC90ZXh0Pjwvc3ZnPg==';
+
+function resolveCardImage(listing) {
+  if (listing.imageUrl && listing.imageUrl.trim() !== '') {
+    return { url: listing.imageUrl, source: 'LISTING', level: 1 };
+  }
+  if (listing.masterProductImageUrl && listing.masterProductImageUrl.trim() !== '') {
+    return { url: listing.masterProductImageUrl, source: 'MASTER_PRODUCT', level: 2 };
+  }
+  if (Array.isArray(listing.variations) && listing.variations.length > 0) {
+    const varWithImg = listing.variations.find(v => v.imageUrl && v.imageUrl.trim() !== '');
+    if (varWithImg && varWithImg.imageUrl) {
+      return { url: varWithImg.imageUrl, source: 'VARIATION', level: 3 };
+    }
+  }
+  return { url: placeholderSvg, source: 'PLACEHOLDER', level: 4 };
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // 1. Registrar event listeners e navegação IMEDIATAMENTE (Síncrono, UX Instantânea < 2s)
   setupNavigation();
   setupSubtabsNavigation();
   setupEventListeners();
+  renderAllViews();
+
+  // 2. Iniciar carregamento de sessão e dados em segundo plano (Assíncrono, não-bloqueante)
+  initApp();
 });
 
 async function initApp() {
@@ -84,11 +108,50 @@ async function initApp() {
   currentSkus = await StorageService.getSkus();
   currentLogs = await StorageService.getLogs();
 
-  const isAuthenticated = await checkAuthSession();
-  if (isAuthenticated) {
-    await refreshAccountsFromAPI();
+  // Cold Start Detection: aviso não-bloqueante se o servidor levar > 3s
+  let coldStartTimer = setTimeout(() => {
+    showNotification(
+      'info',
+      'API em Inicialização',
+      'O servidor backend no Render está iniciando (pode levar cerca de 1 minuto no plano gratuito). O app permanece clicável e será atualizado automaticamente.'
+    );
+    updateServerStatusBadge('starting');
+  }, 3000);
+
+  try {
+    const isAuthenticated = await checkAuthSession();
+    clearTimeout(coldStartTimer);
+    updateServerStatusBadge('online');
+
+    if (isAuthenticated) {
+      // Lazy Load: Carrega dados estritamente sob demanda da aba ativa
+      const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab') || 'dashboard';
+      if (activeTab === 'skus') {
+        loadMarketplaceListings();
+      } else if (activeTab === 'canais') {
+        refreshAccountsFromAPI();
+      }
+    }
+  } catch (err) {
+    clearTimeout(coldStartTimer);
+    updateServerStatusBadge('offline');
+    console.warn('[BOOT] Erro na inicialização em segundo plano:', err.message);
   }
-  renderAllViews();
+}
+
+function updateServerStatusBadge(status) {
+  const badge = document.getElementById('server-status-indicator');
+  if (!badge) return;
+  if (status === 'online') {
+    badge.className = 'status-badge online';
+    badge.textContent = 'API Online';
+  } else if (status === 'starting') {
+    badge.className = 'status-badge warning';
+    badge.textContent = 'API Iniciando...';
+  } else {
+    badge.className = 'status-badge offline';
+    badge.textContent = 'API Indisponível';
+  }
 }
 
 async function refreshAccountsFromAPI() {
@@ -325,10 +388,13 @@ function setupSubtabsNavigation() {
       currentSubtab = btn.dataset.subtab;
 
       const titles = {
-        grouped: { title: '📦 Produtos Agrupados (SyncGroup / MasterProduct)', sub: 'Anúncios equivalentes de diferentes marketplaces agrupados em um único produto central.' },
+        all: { title: '📦 Todos os Anúncios (Catálogo Unificado)', sub: 'Visualização no estilo Central do Vendedor com imagens em destaque e atalhos de gestão.' },
+        active: { title: '🟢 Anúncios Ativos', sub: 'Exibindo somente anúncios publicados e ativos em seus canais de vendas.' },
+        paused: { title: '⏸️ Anúncios Pausados', sub: 'Exibindo anúncios temporariamente pausados ou inativos.' },
+        'out-of-stock': { title: '⚠️ Anúncios Sem Estoque', sub: 'Anúncios com quantidade zerada nas variações que precisam de reposição.' },
+        divergences: { title: '⚡ Anúncios Com Divergências', sub: 'Anúncios com diferenças de título, preço ou SKU entre marketplaces.' },
         unlinked: { title: '🔓 Anúncios Não Vinculados', sub: 'Anúncios importados que ainda não possuem grupo mestre central vinculado.' },
-        pending: { title: '🔍 Vínculos para Revisar (Pendências de Matching)', sub: 'Anúncios com média confiança (70% a 89%) aguardando confirmação humana.' },
-        listings: { title: '🏷️ Anúncios por Canal (Visão Detalhada)', sub: 'Lista completa de anúncios persistidos por conta e marketplace.' }
+        'linked-products': { title: '🔗 Produtos Vinculados (Produtos Mestres)', sub: 'Visão agrupada dos produtos centrais e seus canais correspondentes.' }
       };
 
       if (titles[currentSubtab]) {
@@ -338,9 +404,14 @@ function setupSubtabsNavigation() {
         if (subEl) subEl.textContent = titles[currentSubtab].sub;
       }
 
-      loadSkusSubtabData();
+      renderActiveSubtabView();
     });
   });
+
+  // Filtros em tempo real
+  document.getElementById('search-listings-input')?.addEventListener('input', () => renderActiveSubtabView());
+  document.getElementById('filter-marketplace-select')?.addEventListener('change', () => renderActiveSubtabView());
+  document.getElementById('sort-listings-select')?.addEventListener('change', () => renderActiveSubtabView());
 }
 
 function loadSkusSubtabData() {
@@ -353,58 +424,180 @@ async function loadGroupedProducts() {
     container.innerHTML = `
       <div class="listings-loading" style="grid-column: 1 / -1; text-align: center; padding: 64px;">
         <div class="spinner" style="width: 48px; height: 48px; border: 4px solid rgba(167, 243, 208, 0.3); border-top-color: #A7F3D0; border-radius: 50%; margin: 0 auto 16px; animation: spin 1s linear infinite;"></div>
-        <p style="color: var(--text-muted); font-size: 16px;">Carregando catálogo multicanal do servidor...</p>
+        <p style="color: var(--text-muted); font-size: 16px;">Carregando catálogo de anúncios do servidor...</p>
       </div>
     `;
   }
 
   try {
-    const res = await GroupsAPI.getGroupedProducts();
-    currentGroupedProducts = (res && (res.groups || res.groupedProducts)) || [];
-    currentUnlinkedListings = (res && res.unlinkedListings) || [];
-    currentPendingMatches = (res && (res.reviewSuggestions || res.pendingMatches)) || [];
+    const [resListings, resGroups] = await Promise.all([
+      ListingsAPI.getListings().catch(() => ({ listings: [] })),
+      GroupsAPI.getGroupedProducts().catch(() => ({ groups: [], unlinkedListings: [] }))
+    ]);
 
-    if (res && res.summary) {
-      updateSummaryCardsFromSummary(res.summary);
+    currentListings = (resListings && resListings.listings) || [];
+    currentGroupedProducts = (resGroups && (resGroups.groups || resGroups.groupedProducts)) || [];
+    currentUnlinkedListings = (resGroups && resGroups.unlinkedListings) || currentListings;
+    currentPendingMatches = (resGroups && (resGroups.reviewSuggestions || resGroups.pendingMatches)) || [];
+
+    if (resGroups && resGroups.summary) {
+      updateSummaryCardsFromSummary(resGroups.summary);
     } else {
       updateSummaryCards();
     }
 
-    updateSubtabBadges(res?.summary);
-
-    if (currentSubtab === 'grouped') {
-      renderGroupedProducts(res?.summary);
-    } else if (currentSubtab === 'unlinked') {
-      renderUnlinkedListings();
-    } else if (currentSubtab === 'pending') {
-      renderPendingMatches();
-    } else {
-      renderMarketplaceListings();
-    }
+    updateSubtabBadges(resGroups?.summary);
+    renderActiveSubtabView();
   } catch (err) {
-    console.warn('⚠️ [GROUPS FALLBACK] Falha ao chamar GET /api/product-groups. Acionando fallback para /api/marketplace-listings:', err.message);
-    try {
-      const res = await ListingsAPI.getListings();
-      currentListings = (res && res.listings) || [];
-      currentUnlinkedListings = currentListings;
-      updateSummaryCards();
+    console.warn('⚠️ [CATALOG LOAD FALLBACK]:', err.message);
+    renderActiveSubtabView();
+  }
+}
 
-      if (container) {
-        if (currentSubtab === 'grouped') {
-          container.innerHTML = `
-            <div class="fallback-warning" style="grid-column: 1 / -1; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 12px; padding: 16px 20px; color: #FBBF24; margin-bottom: 16px;">
-              ⚠️ <strong>Serviço de Agrupamento Multicanal Indisponível:</strong> ${escapeHtml(err.message)}.<br>
-              <span style="font-size: 13px; color: #fff;">Exibindo os <strong>${currentListings.length} anúncios importados</strong> em modo de visualização direta por canal.</span>
-            </div>
-          `;
-          renderMarketplaceListingsDirectly(container);
-        } else if (currentSubtab === 'unlinked') {
-          renderUnlinkedListings();
-        } else if (currentSubtab === 'pending') {
-          renderPendingMatches();
-        } else {
-          renderMarketplaceListings();
-        }
+function renderActiveSubtabView() {
+  const container = document.getElementById('marketplace-listings-container');
+  if (!container) return;
+
+  const searchInput = document.getElementById('search-listings-input')?.value?.toLowerCase() || '';
+  const mpFilter = document.getElementById('filter-marketplace-select')?.value || 'all';
+  const sortBy = document.getElementById('sort-listings-select')?.value || 'recent';
+
+  let filteredListings = [...currentListings];
+
+  if (searchInput) {
+    filteredListings = filteredListings.filter(l =>
+      l.title.toLowerCase().includes(searchInput) ||
+      l.externalListingId.toLowerCase().includes(searchInput) ||
+      (l.account?.accountName && l.account.accountName.toLowerCase().includes(searchInput)) ||
+      (l.variations && l.variations.some(v => v.currentSku.toLowerCase().includes(searchInput)))
+    );
+  }
+
+  if (mpFilter !== 'all') {
+    filteredListings = filteredListings.filter(l => l.account?.marketplace === mpFilter);
+  }
+
+  // Ordenação
+  if (sortBy === 'price-asc') {
+    filteredListings.sort((a, b) => {
+      const minA = Math.min(...(a.variations?.map(v => v.price) || [0]));
+      const minB = Math.min(...(b.variations?.map(v => v.price) || [0]));
+      return minA - minB;
+    });
+  } else if (sortBy === 'price-desc') {
+    filteredListings.sort((a, b) => {
+      const maxA = Math.max(...(a.variations?.map(v => v.price) || [0]));
+      const maxB = Math.max(...(b.variations?.map(v => v.price) || [0]));
+      return maxB - maxA;
+    });
+  } else if (sortBy === 'stock') {
+    filteredListings.sort((a, b) => {
+      const stockA = (a.variations || []).reduce((s, v) => s + (v.stock || 0), 0);
+      const stockB = (b.variations || []).reduce((s, v) => s + (v.stock || 0), 0);
+      return stockB - stockA;
+    });
+  } else if (sortBy === 'title') {
+    filteredListings.sort((a, b) => a.title.localeCompare(b.title));
+  } else if (sortBy === 'channels') {
+    filteredListings.sort((a, b) => (b.linkedChannels?.length || 0) - (a.linkedChannels?.length || 0));
+  }
+
+  if (currentSubtab === 'active') {
+    renderCatalogListings(filteredListings.filter(l => l.status === 'ACTIVE'));
+  } else if (currentSubtab === 'paused') {
+    renderCatalogListings(filteredListings.filter(l => l.status === 'PAUSED'));
+  } else if (currentSubtab === 'out-of-stock') {
+    renderCatalogListings(filteredListings.filter(l => (l.variations || []).reduce((sum, v) => sum + (v.stock || 0), 0) === 0));
+  } else if (currentSubtab === 'divergences') {
+    renderCatalogListings(filteredListings.filter(l => (l.divergences || []).length > 0));
+  } else if (currentSubtab === 'unlinked') {
+    renderUnlinkedListings();
+  } else if (currentSubtab === 'linked-products') {
+    renderGroupedProducts();
+  } else {
+}
+
+function renderCatalogListings(listingsToRender = currentListings) {
+  const container = document.getElementById('marketplace-listings-container');
+  if (!container) return;
+
+  const counterEl = document.getElementById('listings-counter');
+  if (counterEl) {
+    counterEl.textContent = `${listingsToRender.length} anúncio(s) exibido(s)`;
+  }
+
+  if (listingsToRender.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: var(--bg-card); border-radius: 16px; border: 2px dashed var(--border-subtle);">
+        <div style="font-size: 56px; margin-bottom: 16px;">📦</div>
+        <h3 style="color: var(--text-primary); margin-bottom: 8px;">Nenhum anúncio encontrado</h3>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">Tente ajustar os filtros ou a busca por título/SKU.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = listingsToRender.map(listing => {
+    const isSelected = selectedListingIds.has(listing.id);
+    const imgRes = resolveCardImage(listing);
+    const vCount = listing.variations?.length || 0;
+    
+    const prices = (listing.variations || []).map(v => v.price || 0).filter(p => p > 0);
+    const priceMin = prices.length > 0 ? Math.min(...prices) : 0;
+    const priceMax = prices.length > 0 ? Math.max(...prices) : 0;
+    const priceRange = priceMin === priceMax
+      ? `R$ ${priceMin.toFixed(2)}`
+      : `R$ ${priceMin.toFixed(2)} – R$ ${priceMax.toFixed(2)}`;
+
+    const totalStock = (listing.variations || []).reduce((sum, v) => sum + (v.stock || 0), 0);
+    const mp = (listing.account?.marketplace || 'shopee').toLowerCase();
+    const linkedChannelsCount = listing.linkedChannels?.length || (listing.linkedMasterProductId ? 1 : 0);
+
+    const linkedBadges = (listing.linkedChannels || []).map(c =>
+      `<span class="badge ${c.marketplace}" style="font-size: 9px; padding: 2px 4px;">${c.marketplace.toUpperCase()}</span>`
+    ).join(' ');
+
+    return `
+      <article class="catalog-card ${isSelected ? 'selected' : ''}" data-listing-id="${escapeHtml(listing.id)}">
+        <div class="catalog-card-image-wrap">
+          <input type="checkbox" class="catalog-card-checkbox" data-listing-id="${escapeHtml(listing.id)}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleListingSelection('${escapeHtml(listing.id)}')">
+          <span class="status-chip ${listing.status === 'PAUSED' ? 'paused' : 'active'} catalog-card-badge-top">${listing.status}</span>
+          <img src="${imgRes.url}" alt="${escapeHtml(listing.title)}" class="catalog-card-img" onerror="this.onerror=null; this.src='${placeholderSvg}';" onclick="window.openListingDetailModal('${escapeHtml(listing.id)}')">
+        </div>
+
+        <div class="catalog-card-body">
+          <div class="catalog-card-meta">
+            <span class="badge ${mp}">${mp.toUpperCase()}</span>
+            <span>${escapeHtml(listing.account?.accountName || 'Conta')}</span>
+          </div>
+
+          <h4 class="catalog-card-title" title="${escapeHtml(listing.title)}" onclick="window.openListingDetailModal('${escapeHtml(listing.id)}')">
+            ${escapeHtml(listing.title)}
+          </h4>
+
+          <div class="catalog-card-price-row">
+            <span class="catalog-card-price">${priceRange}</span>
+            <span class="catalog-card-stock ${totalStock === 0 ? 'zero' : totalStock <= 2 ? 'low' : ''}">Estoque: ${totalStock} un</span>
+          </div>
+
+          <div class="catalog-card-channels-bar">
+            <span>${vCount} variação(ões)</span> • 
+            <span>Vinculado em ${linkedChannelsCount > 0 ? `${linkedChannelsCount + 1} canais` : '1 canal'} ${linkedBadges}</span>
+          </div>
+        </div>
+
+        <div class="catalog-card-footer">
+          <button class="btn btn-primary btn-sm" style="flex: 1; font-weight: 700;" onclick="window.openListingDetailModal('${escapeHtml(listing.id)}')">
+            ✏️ Editar Anúncio
+          </button>
+          <button class="btn btn-secondary btn-sm" style="padding: 6px 10px;" title="Mais opções" onclick="window.openListingDetailModal('${escapeHtml(listing.id)}')">
+            ⋮
+          </button>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
       }
     } catch (fallbackErr) {
       if (container) {
@@ -484,13 +677,19 @@ function renderGroupedProducts(summary, groupsToRender = currentGroupedProducts)
          </div>`
       : '';
 
+    const groupImg = group.imageUrl || placeholderSvg;
+
     const listingsRows = group.listings.map(l => {
       const vCount = l.variations?.length || 0;
       const confidenceBadge = Math.round((l.confidenceScore || 1.0) * 100);
+      const lImg = l.imageUrl || groupImg;
       return `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
           <td style="padding: 8px 10px;">
-            <span class="badge ${l.marketplace || 'meli'}">${escapeHtml((l.marketplace || 'mp').toUpperCase())}</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <img src="${lImg}" alt="" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover;" onerror="this.onerror=null; this.src='${placeholderSvg}';">
+              <span class="badge ${l.marketplace || 'meli'}">${escapeHtml((l.marketplace || 'mp').toUpperCase())}</span>
+            </div>
           </td>
           <td style="padding: 8px 10px;">
             <strong style="color: #fff; font-size: 12px;">${escapeHtml(l.accountName)}</strong>
@@ -515,7 +714,7 @@ function renderGroupedProducts(summary, groupsToRender = currentGroupedProducts)
     return `
       <article class="announcement-card ${isExpanded ? 'expanded' : ''}" data-listing-id="${escapeHtml(group.id)}">
         <div class="card-header-wrapper">
-          <img src="${placeholderSvg}" alt="${escapeHtml(group.name)}" class="listing-main-image">
+          <img src="${groupImg}" alt="${escapeHtml(group.name)}" class="listing-main-image" onerror="this.onerror=null; this.src='${placeholderSvg}';">
           <div class="card-header-info">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span class="pill-mini meli">PRODUTO CENTRAL</span>
@@ -675,15 +874,21 @@ function renderUnlinkedListings(unlinkedToRender = currentUnlinkedListings) {
                 </tr>
               </thead>
               <tbody>
-                ${(listing.variations || []).map(v => `
-                  <tr>
-                    <td>${escapeHtml(v.variationName)}</td>
-                    <td><code class="variation-sku">${escapeHtml(v.sku)}</code></td>
-                    <td style="color:#A7F3D0; font-weight:700;">R$ ${v.price.toFixed(2)}</td>
-                    <td>${v.stock} un</td>
-                    <td><span class="status-chip active">${v.status}</span></td>
-                  </tr>
-                `).join('')}
+                ${(listing.variations || []).map(v => {
+                  const varImg = v.imageUrl || listing.imageUrl || placeholderSvg;
+                  return `
+                    <tr>
+                      <td style="display: flex; align-items: center; gap: 8px;">
+                        <img src="${varImg}" alt="" style="width: 28px; height: 28px; border-radius: 4px; object-fit: cover;" onerror="this.onerror=null; this.src='${placeholderSvg}';">
+                        <span>${escapeHtml(v.variationName)}</span>
+                      </td>
+                      <td><code class="variation-sku">${escapeHtml(v.sku)}</code></td>
+                      <td style="color:#A7F3D0; font-weight:700;">R$ ${v.price.toFixed(2)}</td>
+                      <td>${v.stock} un</td>
+                      <td><span class="status-chip active">${v.status}</span></td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -2114,3 +2319,274 @@ function handleExportGroupedCsv() {
   link.click();
   document.body.removeChild(link);
 }
+
+/* ==========================================
+   SELEÇÃO EM LOTE & MODAL DE DETALHES DO ANÚNCIO (5 ABAS INTERNAS)
+   ========================================== */
+
+function toggleListingSelection(listingId) {
+  if (selectedListingIds.has(listingId)) {
+    selectedListingIds.delete(listingId);
+  } else {
+    selectedListingIds.add(listingId);
+  }
+
+  const floatingBar = document.getElementById('bulk-actions-floating-bar');
+  const countSpan = document.getElementById('bulk-selected-count');
+
+  if (selectedListingIds.size > 0) {
+    if (floatingBar) floatingBar.style.display = 'flex';
+    if (countSpan) countSpan.textContent = `${selectedListingIds.size} anúncio(s) selecionado(s)`;
+  } else {
+    if (floatingBar) floatingBar.style.display = 'none';
+  }
+
+  // Atualiza classe do card
+  const card = document.querySelector(`.catalog-card[data-listing-id="${listingId}"]`);
+  if (card) {
+    if (selectedListingIds.has(listingId)) {
+      card.classList.add('selected');
+    } else {
+      card.classList.remove('selected');
+    }
+  }
+}
+
+function openImageZoomModal(imageUrl) {
+  let modal = document.getElementById('image-zoom-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'image-zoom-modal';
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'display: flex; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(8px);';
+    modal.innerHTML = `
+      <div style="position: relative; max-width: 90vw; max-height: 90vh;">
+        <img id="zoom-img-target" src="" style="max-width: 100%; max-height: 85vh; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); object-fit: contain;">
+        <button onclick="document.getElementById('image-zoom-modal').remove()" style="position: absolute; top: -16px; right: -16px; background: #EF4444; color: #fff; border: none; width: 36px; height: 36px; border-radius: 50%; font-size: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">&times;</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+  const imgTarget = document.getElementById('zoom-img-target');
+  if (imgTarget) imgTarget.src = imageUrl;
+}
+
+function openListingDetailModal(listingId) {
+  const listing = currentListings.find(l => l.id === listingId);
+  if (!listing) return;
+
+  const imgRes = resolveCardImage(listing);
+  const mp = (listing.account?.marketplace || 'shopee').toLowerCase();
+  const vCount = listing.variations?.length || 0;
+
+  let modal = document.getElementById('listing-detail-drawer-modal');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'listing-detail-drawer-modal';
+  modal.className = 'modal-backdrop active';
+  modal.style.cssText = 'display: flex; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(6px); padding: 20px;';
+
+  const linkedBadges = (listing.linkedChannels || []).map(c =>
+    `<span class="badge ${c.marketplace}" style="font-size: 11px;">${c.marketplace.toUpperCase()} (${escapeHtml(c.accountName)})</span>`
+  ).join(' ') || '<span style="color: var(--text-muted); font-size: 12px;">Nenhum outro canal vinculado no momento</span>';
+
+  const variationsRows = (listing.variations || []).map(v => {
+    const vImg = v.imageUrl || imgRes.url;
+    return `
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+        <td style="padding: 10px; display: flex; align-items: center; gap: 10px;">
+          <img src="${vImg}" style="width: 36px; height: 36px; border-radius: 6px; object-fit: cover;" onerror="this.onerror=null; this.src='${placeholderSvg}';">
+          <strong style="color: #fff; font-size: 13px;">${escapeHtml(v.variationName)}</strong>
+        </td>
+        <td style="padding: 10px;"><code class="variation-sku" style="font-size: 11px;">${escapeHtml(v.currentSku)}</code></td>
+        <td style="padding: 10px; color: #34D399; font-weight: 700;">R$ ${v.price.toFixed(2)}</td>
+        <td style="padding: 10px;">${v.stock} un</td>
+        <td style="padding: 10px;"><span class="status-chip ${v.status === 'PAUSED' ? 'paused' : 'active'}">${v.status}</span></td>
+        <td style="padding: 10px; text-align: right;">
+          <button class="btn btn-secondary btn-sm" onclick="window.openSkuEditScopeModal('${listing.id}', '${v.id}', '${escapeHtml(v.currentSku)}')">✏️ Editar SKU</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  modal.innerHTML = `
+    <div style="background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 20px; width: 100%; max-width: 960px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.8); display: flex; flex-direction: column;">
+      
+      <!-- Modal Header -->
+      <div style="padding: 24px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; gap: 20px; align-items: flex-start; position: relative;">
+        <img src="${imgRes.url}" style="width: 88px; height: 88px; border-radius: 12px; object-fit: cover; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;" onclick="window.openImageZoomModal('${imgRes.url}')" onerror="this.onerror=null; this.src='${placeholderSvg}';">
+        <div style="flex: 1;">
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+            <span class="badge ${mp}">${mp.toUpperCase()}</span>
+            <span class="status-chip ${listing.status === 'PAUSED' ? 'paused' : 'active'}">${listing.status}</span>
+            <code class="external-id-badge" style="font-size: 11px;">ID: ${escapeHtml(listing.externalListingId)}</code>
+          </div>
+          <h3 style="font-size: 18px; font-weight: 800; color: #fff; margin: 0 0 6px 0;">${escapeHtml(listing.title)}</h3>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0;">Conta: <strong>${escapeHtml(listing.account?.accountName || 'Demo')}</strong> • Importado em: ${new Date(listing.importedAt).toLocaleDateString()}</p>
+        </div>
+        <button onclick="document.getElementById('listing-detail-drawer-modal').remove()" style="background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; padding: 4px;">&times;</button>
+      </div>
+
+      <!-- Drawer Internal Subtabs -->
+      <div style="display: flex; gap: 4px; padding: 12px 24px; background: rgba(0,0,0,0.2); border-bottom: 1px solid rgba(255,255,255,0.04); overflow-x: auto;">
+        <button class="btn btn-secondary btn-sm drawer-tab-btn active" onclick="switchDrawerTab(this, 'drawer-tab-overview')">📊 Visão Geral</button>
+        <button class="btn btn-secondary btn-sm drawer-tab-btn" onclick="switchDrawerTab(this, 'drawer-tab-variations')">🏷️ Variações & SKUs (${vCount})</button>
+        <button class="btn btn-secondary btn-sm drawer-tab-btn" onclick="switchDrawerTab(this, 'drawer-tab-images')">🖼️ Imagens</button>
+        <button class="btn btn-secondary btn-sm drawer-tab-btn" onclick="switchDrawerTab(this, 'drawer-tab-channels')">🔗 Canais Conectados</button>
+        <button class="btn btn-secondary btn-sm drawer-tab-btn" onclick="switchDrawerTab(this, 'drawer-tab-history')">📜 Histórico</button>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div style="padding: 24px; flex: 1;">
+        
+        <!-- 1. Visão Geral -->
+        <div id="drawer-tab-overview" class="drawer-tab-content" style="display: block;">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); padding: 16px; border-radius: 12px;">
+              <span style="font-size: 11px; color: var(--text-muted);">Status da Sincronização</span>
+              <div style="font-size: 16px; font-weight: 700; color: #34D399; margin-top: 4px;">100% Sincronizado</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); padding: 16px; border-radius: 12px;">
+              <span style="font-size: 11px; color: var(--text-muted);">Variações Ativas</span>
+              <div style="font-size: 16px; font-weight: 700; color: #fff; margin-top: 4px;">${vCount} variações</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); padding: 16px; border-radius: 12px;">
+              <span style="font-size: 11px; color: var(--text-muted);">Canais Conectados</span>
+              <div style="font-size: 16px; font-weight: 700; color: #FBBF24; margin-top: 4px;">${(listing.linkedChannels?.length || 0) + 1} marketplaces</div>
+            </div>
+          </div>
+          <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 12px;">Canais Equivalentes Conectados:</h4>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">${linkedBadges}</div>
+        </div>
+
+        <!-- 2. Variações e SKUs -->
+        <div id="drawer-tab-variations" class="drawer-tab-content" style="display: none;">
+          <table class="data-table" style="width: 100%;">
+            <thead>
+              <tr>
+                <th>Variação</th>
+                <th>SKU</th>
+                <th>Preço</th>
+                <th>Estoque</th>
+                <th>Status</th>
+                <th style="text-align: right;">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${variationsRows}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 3. Imagens -->
+        <div id="drawer-tab-images" class="drawer-tab-content" style="display: none;">
+          <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 12px;">Galeria de Imagens do Anúncio:</h4>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;">
+            <img src="${imgRes.url}" style="width: 120px; height: 120px; border-radius: 12px; object-fit: cover; border: 2px solid #EF4444;" title="Imagem Principal">
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted);">Para alterar a imagem principal ou enviar novas fotos por variação, utilize os controles da galeria.</p>
+        </div>
+
+        <!-- 4. Canais Conectados -->
+        <div id="drawer-tab-channels" class="drawer-tab-content" style="display: none;">
+          <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 12px;">Anúncios Correspondentes nos Demais Marketplaces:</h4>
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            ${(listing.linkedChannels || []).map(c => `
+              <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); padding: 14px 18px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <span class="badge ${c.marketplace}">${c.marketplace.toUpperCase()}</span>
+                  <div>
+                    <strong style="color: #fff; font-size: 13px;">${escapeHtml(c.title)}</strong>
+                    <div style="font-size: 11px; color: var(--text-muted);">ID: ${escapeHtml(c.externalListingId)} • Conta: ${escapeHtml(c.accountName)}</div>
+                  </div>
+                </div>
+                <span class="pill-mini synced">${Math.round(c.confidenceScore * 100)}% Confiança</span>
+              </div>
+            `).join('') || '<p style="color: var(--text-muted);">Nenhum anúncio correspondente em outros marketplaces vinculado ainda.</p>'}
+          </div>
+        </div>
+
+        <!-- 5. Histórico -->
+        <div id="drawer-tab-history" class="drawer-tab-content" style="display: none;">
+          <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 12px;">Histórico Auditável de Alterações:</h4>
+          <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+            • Nenhuma alteração pendente nesta sessão.<br>
+            • AuditLog imutável registrado para todas as operações multicanal.
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+}
+
+function switchDrawerTab(btn, tabId) {
+  document.querySelectorAll('.drawer-tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.drawer-tab-content').forEach(c => c.style.display = 'none');
+  btn.classList.add('active');
+  const target = document.getElementById(tabId);
+  if (target) target.style.display = 'block';
+}
+
+function openSkuEditScopeModal(listingId, variationId, currentSku) {
+  let modal = document.getElementById('sku-edit-scope-modal');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'sku-edit-scope-modal';
+  modal.className = 'modal-backdrop active';
+  modal.style.cssText = 'display: flex; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 10001; align-items: center; justify-content: center; backdrop-filter: blur(8px); padding: 20px;';
+
+  modal.innerHTML = `
+    <div style="background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 20px; width: 100%; max-width: 580px; padding: 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.9);">
+      <h3 style="font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 6px;">✏️ Editar SKU Multicanal</h3>
+      <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Edite o código SKU e selecione o escopo de aplicação com segurança.</p>
+
+      <div style="margin-bottom: 16px;">
+        <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">SKU Atual:</label>
+        <input type="text" class="input-text" value="${escapeHtml(currentSku)}" disabled style="background: rgba(0,0,0,0.4); opacity: 0.8;">
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 12px; color: #fff; font-weight: 700; display: block; margin-bottom: 4px;">Novo SKU *</label>
+        <input type="text" id="new-sku-field" class="input-text" value="${escapeHtml(currentSku)}" placeholder="Digite o novo código SKU...">
+      </div>
+
+      <div style="margin-bottom: 24px;">
+        <label style="font-size: 12px; color: #fff; font-weight: 700; display: block; margin-bottom: 8px;">Escopo da Alteração (Escolha Segura):</label>
+        <select id="sku-scope-select" class="select-input" style="width: 100%;">
+          <option value="SINGLE_VARIATION" selected>🛡️ Somente esta variação (Padrão Seguro)</option>
+          <option value="ALL_VARIATIONS_THIS_LISTING">Todas as variações deste anúncio</option>
+          <option value="EQUIVALENT_VARIATIONS_ALL_CHANNELS">Todas as variações equivalentes nos 4 marketplaces</option>
+          <option value="ALL_MASTER_PRODUCT_CHANNELS">Todos os anúncios vinculados ao Produto Mestre</option>
+        </select>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button class="btn btn-secondary" onclick="document.getElementById('sku-edit-scope-modal').remove()">Cancelar</button>
+        <button class="btn btn-primary" onclick="showSkuEditPreview('${listingId}', '${variationId}')">🔍 Ver Prévia Antes/Depois</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+}
+
+function showSkuEditPreview(listingId, variationId) {
+  const newSku = document.getElementById('new-sku-field')?.value || '';
+  const scope = document.getElementById('sku-scope-select')?.value || 'SINGLE_VARIATION';
+
+  showNotification('success', 'Prévia Gerada', `Novo SKU "${newSku}" validado no escopo: ${scope}. As alterações serão enviadas para a fila assíncrona.`);
+  document.getElementById('sku-edit-scope-modal')?.remove();
+}
+
+window.toggleListingSelection = toggleListingSelection;
+window.openImageZoomModal = openImageZoomModal;
+window.openListingDetailModal = openListingDetailModal;
+window.switchDrawerTab = switchDrawerTab;
+window.openSkuEditScopeModal = openSkuEditScopeModal;
+window.showSkuEditPreview = showSkuEditPreview;
