@@ -71,7 +71,6 @@ let currentSubtab = 'all';
 let currentGroupedProducts = [];
 let currentUnlinkedListings = [];
 let currentPendingMatches = [];
-let currentListings = [];
 let selectedListingIds = new Set();
 
 const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4OCIgaGVpZ2h0PSI4OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIxMiIgZmlsbD0iIzE5MTIxNCIgc3Ryb2tlPSJyZ2JhKDIzOSwgNjgsIDY4LCAwLjMpIiBzdHJva2Utd2lkdGg9IjEiLz48dGV4dCB4PSI1MCUiIHk9IjQyJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI0VGNDQ0NCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSI4MDAiPkxYPC90ZXh0Pjx0ZXh0IHg9IjUwJSIgeT0iNjIlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOUNBM0FGIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSI5IiBmb250LXdlaWdodD0iNjAwIj5TeW5jPC90ZXh0Pjwvc3ZnPg==';
@@ -515,6 +514,8 @@ function renderActiveSubtabView() {
   } else if (currentSubtab === 'linked-products') {
     renderGroupedProducts();
   } else {
+    renderCatalogListings(filteredListings);
+  }
 }
 
 function renderCatalogListings(listingsToRender = currentListings) {
@@ -597,20 +598,6 @@ function renderCatalogListings(listingsToRender = currentListings) {
       </article>
     `;
   }).join('');
-}
-      }
-    } catch (fallbackErr) {
-      if (container) {
-        container.innerHTML = `
-          <div class="listings-error" style="grid-column: 1 / -1; text-align: center; padding: 48px; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
-            <h3 style="color: #EF4444; margin-bottom: 12px;">❌ Erro ao Conectar com o Servidor (HTTP 404 / Erro de Conexão)</h3>
-            <p style="color: var(--text-muted); font-size: 14px;">${escapeHtml(fallbackErr.message)}</p>
-            <button class="btn btn-secondary" style="margin-top: 16px;" onclick="window.loadGroupedProducts()">Tentar Novamente</button>
-          </div>
-        `;
-      }
-    }
-  }
 }
 
 function updateSummaryCardsFromSummary(summary) {
