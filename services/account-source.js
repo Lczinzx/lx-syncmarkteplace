@@ -49,17 +49,25 @@ export function extractAccountsFromResponse(res) {
  */
 export function normalizeAccountFromApi(acc) {
   if (!acc) return null;
+  const rawPlatform = String(acc.marketplace || acc.platform || 'meli').toLowerCase();
+  const shopIdVal = acc.shopId || acc.sellerId || acc.externalAccountId || '';
+  const maskedShopId = shopIdVal.length > 4 ? `${shopIdVal.slice(0, 3)}****${shopIdVal.slice(-2)}` : shopIdVal;
+
   return {
     id: acc.id,
-    platform: acc.marketplace || acc.platform || 'meli',
-    platformName: platformLabel(acc.marketplace || acc.platform),
-    accountName: acc.accountName || acc.sellerName || acc.name || platformLabel(acc.marketplace || acc.platform),
-    sellerName: acc.accountName || acc.sellerName || acc.name || platformLabel(acc.marketplace || acc.platform),
+    platform: rawPlatform,
+    marketplace: rawPlatform,
+    platformName: platformLabel(rawPlatform),
+    accountName: acc.accountName || acc.sellerName || acc.name || platformLabel(rawPlatform),
+    sellerName: acc.accountName || acc.sellerName || acc.name || platformLabel(rawPlatform),
     sellerId: acc.sellerId || acc.shopId || acc.externalAccountId || '',
     shopId: acc.shopId || null,
+    shopIdMasked: maskedShopId,
     status: acc.status || 'CONNECTED',
     connected: (acc.status || 'CONNECTED') === 'CONNECTED',
     isDemo: acc.isDemo === true,
+    environment: acc.environment || 'sandbox',
+    lastAuthorizedAt: acc.lastAuthorizedAt || null,
     lastSyncAt: acc.lastSyncAt || acc.lastSync || null,
     lastImportAt: acc.lastImportAt || null,
     externalAccountId: acc.externalAccountId || null

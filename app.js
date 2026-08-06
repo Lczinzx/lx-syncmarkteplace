@@ -108,6 +108,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initApp();
 });
 
+let hasAccountsError = false;
+
 async function initApp() {
   currentSettings = await StorageService.getSettings();
   currentSkus = await StorageService.getSkus();
@@ -129,12 +131,27 @@ async function initApp() {
     updateServerStatusBadge('online');
 
     if (isAuthenticated) {
-      // Lazy Load: Carrega dados estritamente sob demanda da aba ativa
-      const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab') || 'dashboard';
-      if (activeTab === 'skus') {
-        loadMarketplaceListings();
-      } else if (activeTab === 'canais') {
-        refreshAccountsFromAPI();
+      // 1. Sempre carregar contas conectadas no boot inicial
+      await refreshAccountsFromAPI();
+
+      // 2. Tratar retorno do fluxo OAuth (URL query params)
+      const urlParams = new URLSearchParams(window.location.search);
+      const isOAuthSuccess = urlParams.get('connection') === 'success' || urlParams.get('shopee_connected') === 'true';
+      const provider = urlParams.get('provider') || 'shopee';
+      const section = urlParams.get('section');
+
+      if (isOAuthSuccess || section === 'channels') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        switchTab('channels');
+        if (isOAuthSuccess) {
+          showNotification('success', 'Loja Conectada!', `Sua loja ${provider.toUpperCase()} foi conectada com sucesso em Modo Somente Leitura.`);
+          await refreshAccountsFromAPI();
+        }
+      } else {
+        const activeTab = document.querySelector('.nav-link.active')?.getAttribute('data-tab') || 'dashboard';
+        if (activeTab === 'skus') {
+          loadMarketplaceListings();
+        }
       }
     }
   } catch (err) {
@@ -160,6 +177,7 @@ function updateServerStatusBadge(status) {
 }
 
 async function refreshAccountsFromAPI() {
+  hasAccountsError = false;
   try {
     const res = await AccountsAPI.getAccounts();
     // FONTE ÚNICA: resposta da API. Nunca usa localStorage/chrome.storage.
@@ -167,10 +185,10 @@ async function refreshAccountsFromAPI() {
     currentAccounts = normalizeAccountsFromApi(apiAccounts);
     console.log(`[ACCOUNTS] ${currentAccounts.length} conta(s) carregada(s) do backend:`, currentAccounts.map(a => a.id));
   } catch (err) {
-    // Sem fallback local: lista vazia + aviso amigável
+    hasAccountsError = true;
     currentAccounts = [];
-    console.error('[ACCOUNTS] Falha ao carregar contas da API (sem fallback local):', err.message);
-    showNotification('error', 'Contas indisponíveis', 'Não foi possível carregar as contas do servidor.');
+    console.error('[ACCOUNTS] Falha ao carregar contas da API:', err.message);
+    showNotification('error', 'Falha ao Carregar Contas', 'Não foi possível carregar as contas conectadas do servidor.');
   }
   renderAllViews();
 }
@@ -272,6 +290,8 @@ function switchTab(tabId) {
 
   if (tabId === 'skus') {
     loadSkusSubtabData();
+  } else if (tabId === 'channels' || tabId === 'canais') {
+    refreshAccountsFromAPI();
   }
 }
 
@@ -1350,6 +1370,22 @@ function renderAccountsGrid() {
   const container = document.getElementById('accounts-cards-grid');
   if (!container) return;
 
+  if (hasAccountsError) {
+    container.innerHTML = `
+      <div class="card" style="grid-column: 1/-1; text-align: center; padding: 48px; border-color: rgba(239, 68, 68, 0.4);">
+        <div style="font-size: 32px; margin-bottom: 12px;">🚨</div>
+        <h3 style="font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 6px;">Não foi possível carregar as contas conectadas.</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">Ocorreu uma falha de comunicação com o servidor API.</p>
+        <button class="btn btn-secondary" id="btn-retry-load-accounts" style="padding: 10px 20px; font-weight: 700; border-radius: 10px;">
+          🔄 Tentar novamente
+        </button>
+      </div>`;
+
+    const btnRetry = document.getElementById('btn-retry-load-accounts');
+    if (btnRetry) btnRetry.addEventListener('click', () => refreshAccountsFromAPI());
+    return;
+  }
+
   if (currentAccounts.length === 0) {
     container.innerHTML = `
       <div class="card" style="grid-column: 1/-1; text-align: center; padding: 48px; border-color: rgba(239, 68, 68, 0.2);">
@@ -1376,22 +1412,26 @@ function renderAccountsGrid() {
   };
 
   container.innerHTML = currentAccounts.map(acc => {
-    const meta = platformBadges[acc.platform] || { badgeClass: 'meli-bg', label: 'MP', name: acc.platformName || acc.platform };
+    const rawPlat = String(acc.platform || acc.marketplace || 'meli').toLowerCase();
+    const meta = platformBadges[rawPlat] || { badgeClass: 'shopee-bg', label: rawPlat.slice(0,3).toUpperCase(), name: acc.platformName || rawPlat };
+    const shopIdDisplay = acc.shopIdMasked || acc.shopId || acc.sellerId || acc.id;
+
     return `
       <div class="card channel-config-card" data-account-card="${acc.id}">
         <div class="channel-card-top">
           <div class="channel-icon ${meta.badgeClass}" style="flex-shrink:0;">${meta.label}</div>
           <div style="flex: 1; overflow: hidden;">
-            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px; flex-wrap: wrap;">
               <h3 style="font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">
                 ${escapeHtml(acc.accountName || acc.sellerName || acc.name || meta.name)}
               </h3>
               ${acc.isDemo === true 
                 ? '<span style="background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.4); color: #FBBF24; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">CONTA DE DEMONSTRAÇÃO</span>' 
                 : '<span style="background: rgba(16,185,129,0.18); border: 1px solid rgba(16,185,129,0.4); color: #10B981; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">🔒 CONTA REAL (SOMENTE LEITURA)</span>'}
+              ${acc.environment ? `<span style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #94A3B8; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">${escapeHtml(acc.environment.toUpperCase())}</span>` : ''}
             </div>
             <p style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin: 0;">
-              ${escapeHtml(meta.name)} • ID: <code class="code-tag">${escapeHtml(acc.sellerId || acc.shopId || acc.id)}</code>
+              ${escapeHtml(meta.name)} • ID / ShopID: <code class="code-tag">${escapeHtml(shopIdDisplay)}</code>
             </p>
           </div>
         </div>
@@ -1400,11 +1440,13 @@ function renderAccountsGrid() {
             <span class="status-badge ${acc.status === 'CONNECTED' || acc.connected ? 'synced' : 'critical'}" style="font-size: 10px; padding: 2px 8px;">
               ● ${acc.status === 'CONNECTED' || acc.connected ? 'Ativa & Conectada' : 'Desconectada'}
             </span>
-            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Sync: ${formatTime(acc.lastSyncAt || acc.lastSync)}</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">
+              ${acc.lastAuthorizedAt ? `Autenticada: ${formatTime(acc.lastAuthorizedAt)}` : `Sync: ${formatTime(acc.lastSyncAt || acc.lastSync)}`}
+            </span>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button class="btn btn-primary btn-sm btn-import-acc" data-account-id="${acc.id}" style="flex: 1; justify-content: center;">📥 Importar Anúncios</button>
-            <button class="btn btn-secondary btn-sm btn-test-acc" data-account-id="${acc.id}">🧪 Testar</button>
+            ${acc.isDemo !== true ? `<button class="btn btn-secondary btn-sm btn-reauth-acc" data-account-id="${acc.id}">🔄 Reautorizar</button>` : `<button class="btn btn-secondary btn-sm btn-test-acc" data-account-id="${acc.id}">🧪 Testar</button>`}
             <button class="btn btn-danger-outline btn-sm btn-delete-acc" data-account-id="${acc.id}">🗑️ Excluir</button>
           </div>
         </div>
@@ -1507,6 +1549,23 @@ function renderMultiPostAccountsList() {
 function setupEventListeners() {
   const btnSyncAll = document.getElementById('btn-sync-all-header');
   if (btnSyncAll) btnSyncAll.addEventListener('click', handleSyncAllHeader);
+
+  const btnRefreshAccounts = document.getElementById('btn-refresh-accounts');
+  if (btnRefreshAccounts) {
+    btnRefreshAccounts.addEventListener('click', async () => {
+      btnRefreshAccounts.disabled = true;
+      btnRefreshAccounts.innerHTML = `🔄 Atualizando...`;
+      try {
+        await refreshAccountsFromAPI();
+        showNotification('success', 'Contas Atualizadas', 'A lista de contas conectadas foi atualizada a partir do servidor.');
+      } catch (e) {
+        showNotification('error', 'Falha ao Atualizar', e.message);
+      } finally {
+        btnRefreshAccounts.disabled = false;
+        btnRefreshAccounts.innerHTML = `🔄 Atualizar contas`;
+      }
+    });
+  }
 
   const btnAuthShopee = document.getElementById('btn-authorize-shopee');
   if (btnAuthShopee) {

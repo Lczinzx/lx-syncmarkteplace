@@ -427,7 +427,7 @@ app.get('/api/marketplaces/shopee/callback', async (req: Request, res: Response)
     const account = await ShopeeAuthService.handleCallback(prisma, code, shopId, statePayload);
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://lx-syncmarketplace.lczinz.workers.dev';
-    return res.redirect(`${frontendUrl}?shopee_connected=true&account_id=${account.id}`);
+    return res.redirect(`${frontendUrl}/?section=channels&connection=success&provider=shopee&account_id=${account.id}`);
   } catch (err: any) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[SHOPEE-CALLBACK-ERROR]', message);

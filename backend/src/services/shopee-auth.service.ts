@@ -236,44 +236,54 @@ export class ShopeeAuthService {
     const environment = process.env.SHOPEE_ENVIRONMENT?.trim().toLowerCase() || 'sandbox';
     const now = new Date();
 
-    const accountId = `acc-shopee-${shop_id}`;
-
-    const account = await client.marketplaceAccount.upsert({
-      where: { id: accountId },
-      update: {
+    const existing = await client.marketplaceAccount.findFirst({
+      where: {
         organizationId: statePayload.organizationId,
         marketplace: 'shopee',
-        accountName: `Festum Decor - Shopee (${shop_id})`,
-        shopId: String(shop_id),
-        sellerId: String(shop_id),
-        status: 'CONNECTED',
-        isDemo: false,
-        environment,
-        lastAuthorizedAt: now,
-        accessTokenEncrypted: encryptedAccessToken,
-        refreshTokenEncrypted: encryptedRefreshToken,
-        tokenExpiresAt,
-        lastSyncAt: now,
-        updatedAt: now
-      },
-      create: {
-        id: accountId,
-        organizationId: statePayload.organizationId,
-        marketplace: 'shopee',
-        accountName: `Festum Decor - Shopee (${shop_id})`,
-        externalAccountId: `shopee-${shop_id}`,
-        shopId: String(shop_id),
-        sellerId: String(shop_id),
-        status: 'CONNECTED',
-        isDemo: false,
-        environment,
-        lastAuthorizedAt: now,
-        accessTokenEncrypted: encryptedAccessToken,
-        refreshTokenEncrypted: encryptedRefreshToken,
-        tokenExpiresAt,
-        lastSyncAt: now
+        shopId: String(shop_id)
       }
     });
+
+    let account: MarketplaceAccount;
+    if (existing) {
+      account = await client.marketplaceAccount.update({
+        where: { id: existing.id },
+        data: {
+          accountName: `Festum Decor - Shopee (${shop_id})`,
+          sellerId: String(shop_id),
+          status: 'CONNECTED',
+          isDemo: false,
+          environment,
+          lastAuthorizedAt: now,
+          accessTokenEncrypted: encryptedAccessToken,
+          refreshTokenEncrypted: encryptedRefreshToken,
+          tokenExpiresAt,
+          lastSyncAt: now,
+          updatedAt: now
+        }
+      });
+    } else {
+      const accountId = `acc-shopee-${shop_id}`;
+      account = await client.marketplaceAccount.create({
+        data: {
+          id: accountId,
+          organizationId: statePayload.organizationId,
+          marketplace: 'shopee',
+          accountName: `Festum Decor - Shopee (${shop_id})`,
+          externalAccountId: `shopee-${shop_id}`,
+          shopId: String(shop_id),
+          sellerId: String(shop_id),
+          status: 'CONNECTED',
+          isDemo: false,
+          environment,
+          lastAuthorizedAt: now,
+          accessTokenEncrypted: encryptedAccessToken,
+          refreshTokenEncrypted: encryptedRefreshToken,
+          tokenExpiresAt,
+          lastSyncAt: now
+        }
+      });
+    }
 
     await client.auditLog.create({
       data: {
