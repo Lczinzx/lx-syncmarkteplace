@@ -17,6 +17,7 @@
     "prisma:validate": "prisma validate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "seed:demo": "prisma db seed",
+    "admin:cleanup-demo": "tsx src/scripts/admin-cleanup-demo.ts",
     "test": "tsc && node --test dist/tests/**/*.test.js"
   },
   "prisma": {

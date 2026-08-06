@@ -1,3 +1,4 @@
+import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
   listMarketplaceListings,
@@ -6,25 +7,6 @@ import {
 } from '../services/listings.service.js';
 import { generateDemoMarketplaceData } from '../marketplaces/demo-data.js';
 
-console.log('🧪 Executando Testes Automatizados de Listagem de Anúncios (LX Sync)...\n');
-
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => void | Promise<void>) {
-  return Promise.resolve(fn()).then(() => {
-    console.log(`  ✅ ${name}`);
-    passed++;
-  }).catch((err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`  ❌ ${name}: ${msg}`);
-    failed++;
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Fake PrismaClient em memória (somente findMany de marketplaceListing)
-// ---------------------------------------------------------------------------
 function buildFakeClient(rows: Array<Record<string, any>>) {
   return {
     marketplaceListing: {
@@ -72,13 +54,8 @@ function demoRow(externalListingId: string, variationsCount: number, marketplace
   };
 }
 
-async function runTests() {
-  // ============================================================
-  // 1. Serviço de listagem retorna anúncios + variações do banco
-  // ============================================================
-  console.log('📋 1. listMarketplaceListings (fonte: PostgreSQL via Prisma)');
-
-  await test('Retorna anúncios com conta e variações incluídas', async () => {
+describe('📋 TESTES AUTOMATIZADOS DE LISTAGEM DE ANÚNCIOS (LX SYNC)', () => {
+  it('1. Retorna anúncios com conta e variações incluídas', async () => {
     const fake = buildFakeClient([demoRow('FDM-0001', 4, 'shopee'), demoRow('FDM-0002', 2, 'shopee')]);
     const result = await listMarketplaceListings(fake as unknown as import('@prisma/client').PrismaClient, 'org-festum-decor');
     assert.strictEqual(result.totalListings, 2);
@@ -87,7 +64,7 @@ async function runTests() {
     assert.strictEqual(result.listings[0].account.accountName, 'Festum Decor (Demo)');
   });
 
-  await test('toListingView nunca expõe tokens/segredos da conta', () => {
+  it('2. toListingView nunca expõe tokens/segredos da conta', () => {
     const row = demoRow('FDM-0001', 1, 'shopee');
     row.account.accessTokenEncrypted = 'SECRETO_NAO_DEVE_VAZAR';
     const view: MarketplaceListingView = toListingView(row as any);
@@ -96,7 +73,7 @@ async function runTests() {
     assert.ok(!('accessTokenEncrypted' in view.account));
   });
 
-  await test('VariationView expõe SKU, preço e estoque (necessários à tela)', () => {
+  it('3. VariationView expõe SKU, preço e estoque (necessários à tela)', () => {
     const view: MarketplaceListingView = toListingView(demoRow('FDM-0001', 3, 'shopee') as any);
     const v = view.variations[0];
     assert.strictEqual(v.currentSku, 'Z - Red50 - Zoologico - 04');
@@ -105,14 +82,14 @@ async function runTests() {
     assert.ok(view.variations.every(x => x.externalVariationId));
   });
 
-  await test('Contagens somam variações de todos os anúncios', async () => {
+  it('4. Contagens somam variações de todos os anúncios', async () => {
     const fake = buildFakeClient([demoRow('A', 5, 'shopee'), demoRow('B', 3, 'shopee'), demoRow('C', 1, 'meli')]);
     const result = await listMarketplaceListings(fake as unknown as import('@prisma/client').PrismaClient, 'org');
     assert.strictEqual(result.totalListings, 3);
     assert.strictEqual(result.totalVariations, 9);
   });
 
-  await test('Filtro por organização é passado ao Prisma', async () => {
+  it('5. Filtro por organização é passado ao Prisma', async () => {
     let receivedWhere: any = null;
     const fake = {
       marketplaceListing: {
@@ -127,7 +104,7 @@ async function runTests() {
     assert.ok(receivedWhere.marketplaceAccountId === undefined, 'não deve filtrar por conta específica');
   });
 
-  await test('Lista vazia retorna zero sem erro', async () => {
+  it('6. Lista vazia retorna zero sem erro', async () => {
     const fake = buildFakeClient([]);
     const result = await listMarketplaceListings(fake as unknown as import('@prisma/client').PrismaClient, 'org-x');
     assert.strictEqual(result.totalListings, 0);
@@ -135,12 +112,7 @@ async function runTests() {
     assert.deepStrictEqual(result.listings, []);
   });
 
-  // ============================================================
-  // 2. Compatibilidade com o conjunto DEMO (50 anúncios / 129 variações)
-  // ============================================================
-  console.log('\n📋 2. Listagem do Conjunto DEMO importado');
-
-  await test('View de 50 anúncios DEMO mantém contagem esperada', async () => {
+  it('7. View de 50 anúncios DEMO mantém contagem esperada', async () => {
     const demo = generateDemoMarketplaceData();
     const rows = demo.map(l => {
       const row = demoRow(l.externalListingId, l.variations.length, 'shopee');
@@ -165,7 +137,7 @@ async function runTests() {
     assert.ok(views.every(v => !v.includes('SECRETO')));
   });
 
-  await test('Cada anúncio da view tem variações entre 1 e 5', async () => {
+  it('8. Cada anúncio da view tem variações entre 1 e 5', async () => {
     const demo = generateDemoMarketplaceData();
     const rows = demo.map(l => demoRow(l.externalListingId, l.variations.length, 'shopee'));
     const fake = buildFakeClient(rows);
@@ -174,23 +146,4 @@ async function runTests() {
       assert.ok(l.variations.length >= 1 && l.variations.length <= 5, `${l.externalListingId}: ${l.variations.length} variações`);
     });
   });
-
-  // ============================================================
-  // RESULTADO FINAL
-  // ============================================================
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`📊 Resultado: ${passed} passaram, ${failed} falharam (total: ${passed + failed})`);
-  console.log(`${'='.repeat(60)}`);
-
-  if (failed > 0) {
-    console.error('\n❌ ALGUNS TESTES FALHARAM!');
-    process.exit(1);
-  } else {
-    console.log('\n🎉 TODOS OS TESTES AUTOMATIZADOS DE LISTAGEM FORAM CONCLUÍDOS COM SUCESSO!');
-  }
-}
-
-runTests().catch(err => {
-  console.error('❌ Erro fatal nos testes:', err);
-  process.exit(1);
 });

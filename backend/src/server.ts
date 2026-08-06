@@ -1272,12 +1272,9 @@ app.listen(PORT, async () => {
       const seedRes = await ensureDemoData(prisma);
       console.log('[BOOT] Demo seed ativado:', seedRes);
     } else {
-      const cleanRes = await cleanupDemoData(prisma);
-      if (cleanRes.accountsDeleted > 0) {
-        console.log('[BOOT] Produção (ENABLE_DEMO_SEED=false): Limpeza de dados DEMO concluída:', cleanRes);
-      }
+      console.log('[BOOT] Produção: ENABLE_DEMO_SEED != true. Seed DEMO desativado (Nenhuma exclusão no boot).');
     }
   } catch (e: any) {
-    console.warn('[BOOT] Gerenciamento de dados DEMO no boot:', e.message);
+    console.warn('[BOOT] Gerenciamento de seed DEMO no boot:', e.message);
   }
 });

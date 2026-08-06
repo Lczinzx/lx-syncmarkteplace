@@ -1,3 +1,4 @@
+import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { generateDemoMarketplaceData, DemoListingSpec } from '../marketplaces/demo-data.js';
 import { FakeMarketplaceAdapter } from '../marketplaces/fake-marketplace.adapter.js';
@@ -9,25 +10,6 @@ import {
   normalizeListingTitleForComparison
 } from '../services/matching.service.js';
 
-console.log('🧪 Executando Testes Automatizados do Conjunto DEMO (LX Sync)...\n');
-
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => void | Promise<void>) {
-  return Promise.resolve(fn()).then(() => {
-    console.log(`  ✅ ${name}`);
-    passed++;
-  }).catch((err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`  ❌ ${name}: ${msg}`);
-    failed++;
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Fake PrismaClient em memória (somente os métodos usados pelo ImportService)
-// ---------------------------------------------------------------------------
 class FakePrismaClient {
   listings = new Map<string, Record<string, any>>();      // key: marketplaceAccountId|externalListingId
   variations = new Map<string, Record<string, any>>();    // key: marketplaceListingId|externalVariationId
@@ -68,15 +50,15 @@ class FakePrismaClient {
 
   importJob = {
     create: async ({ data }: any) => {
-      const record = { id: `job-${this.importJobs.length + 1}`, ...data };
-      this.importJobs.push(record);
-      return record;
-    }
+      this.importJobs.push(data);
+      return data;
+    },
+    update: async ({ data }: any) => data
   };
 
   auditLog = {
     create: async ({ data }: any) => {
-      const record = { id: `audit-${this.auditLogs.length + 1}`, ...data };
+      const record = { id: `log-${Date.now()}`, ...data };
       this.auditLogs.push(record);
       return record;
     }
@@ -94,59 +76,41 @@ const ACCOUNT_CONFIG = {
   accountName: 'Festum Decor (Demo)'
 };
 
-async function runTests() {
-  // ============================================================
-  // 1. Quantidade mínima de anúncios e variações
-  // ============================================================
-  console.log('📋 1. Quantidade de Dados DEMO');
-
-  let listingsCount = 0;
-  let variationsCount = 0;
-  let minVars = Infinity;
-  let maxVars = 0;
-
-  await test('Gerador produz >= 50 anúncios', () => {
-    listingsCount = generateDemoMarketplaceData().length;
+describe('⚡ TESTES AUTOMATIZADOS DO CONJUNTO DEMO (LX SYNC)', () => {
+  it('1. Gerador produz >= 50 anúncios', () => {
+    const listingsCount = generateDemoMarketplaceData().length;
     assert.ok(listingsCount >= 50, `Esperado >= 50, obtido ${listingsCount}`);
   });
 
-  await test('Gerador produz ~120 variações (>= 100)', () => {
+  it('2. Gerador produz ~120 variações (>= 100)', () => {
     const all = generateDemoMarketplaceData();
-    variationsCount = all.reduce((acc, l) => acc + l.variations.length, 0);
+    const variationsCount = all.reduce((acc, l) => acc + l.variations.length, 0);
     assert.ok(variationsCount >= 100, `Esperado >= 100, obtido ${variationsCount}`);
   });
 
-  await test('Cada anúncio tem entre 1 e 5 variações', () => {
+  it('3. Cada anúncio tem entre 1 e 5 variações', () => {
     const all = generateDemoMarketplaceData();
     all.forEach(l => {
       const n = l.variations.length;
       assert.ok(n >= 1 && n <= 5, `Anúncio ${l.externalListingId} tem ${n} variações (fora de 1-5)`);
-      minVars = Math.min(minVars, n);
-      maxVars = Math.max(maxVars, n);
     });
   });
 
-  await test('Contagem total de variações informada no relatório', () => {
+  it('4. Contagem total de variações informada no relatório', () => {
     const all = generateDemoMarketplaceData();
     const total = all.reduce((acc, l) => acc + l.variations.length, 0);
-    console.log(`  ℹ️  Relatório: ${all.length} anúncios, ${total} variações`);
     assert.ok(all.length >= 50);
     assert.ok(total >= 100);
   });
 
-  // ============================================================
-  // 2. Adapter serve listas e variações do dataset
-  // ============================================================
-  console.log('\n📋 2. FakeMarketplaceAdapter com Dataset DEMO');
-
-  await test('listListings retorna todos os anúncios do dataset', async () => {
+  it('5. listListings retorna todos os anúncios do dataset', async () => {
     const adapter = new FakeMarketplaceAdapter('shopee', 'acc-shopee-demo');
     const res = await adapter.listListings({ limit: 200 });
     assert.ok(res.total >= 50, `total = ${res.total}`);
     assert.strictEqual(res.listings.length, res.total);
   });
 
-  await test('listVariations retorna variações reais para cada anúncio', async () => {
+  it('6. listVariations retorna variações reais para cada anúncio', async () => {
     const adapter = new FakeMarketplaceAdapter('shopee', 'acc-shopee-demo');
     const res = await adapter.listListings({ limit: 200 });
     const first = res.listings[0];
@@ -155,7 +119,7 @@ async function runTests() {
     assert.ok(vars.every(v => v.currentSku !== undefined));
   });
 
-  await test('Adapter aceita dataset customizado (isolado das contas reais)', async () => {
+  it('7. Adapter aceita dataset customizado (isolado das contas reais)', async () => {
     const custom: DemoListingSpec[] = [{
       externalListingId: 'CUSTOM-001',
       externalProductId: 'C-P1',
@@ -173,16 +137,11 @@ async function runTests() {
     assert.strictEqual(res.listings[0].externalListingId, 'CUSTOM-001');
   });
 
-  // ============================================================
-  // 3. Idempotência: primeira importação cria, segunda atualiza
-  // ============================================================
-  console.log('\n📋 3. Idempotência da Importação');
-
   let firstSummary: any = null;
   let secondSummary: any = null;
   let fakeClient: any = null;
 
-  await test('Primeira importação cria anúncios e variações', async () => {
+  it('8. Primeira importação cria anúncios e variações', async () => {
     fakeClient = new FakePrismaClient();
     firstSummary = await ImportService.executeImportJob(fakeClient as unknown as import('@prisma/client').PrismaClient, ACCOUNT_CONFIG, 'lucas@festum.com');
     assert.ok(firstSummary.createdListings >= 50, `created = ${firstSummary.createdListings}`);
@@ -191,7 +150,7 @@ async function runTests() {
     assert.strictEqual(fakeClient.variations.size, firstSummary.totalVariations);
   });
 
-  await test('Segunda importação NÃO duplica (0 criados, todos atualizados)', async () => {
+  it('9. Segunda importação NÃO duplica (0 criados, todos atualizados)', async () => {
     secondSummary = await ImportService.executeImportJob(fakeClient as unknown as import('@prisma/client').PrismaClient, ACCOUNT_CONFIG, 'lucas@festum.com');
     assert.strictEqual(secondSummary.createdListings, 0, `created na 2ª = ${secondSummary.createdListings}`);
     assert.ok(secondSummary.updatedListings >= 50, `updated = ${secondSummary.updatedListings}`);
@@ -199,30 +158,22 @@ async function runTests() {
     assert.strictEqual(fakeClient.variations.size, firstSummary.totalVariations, 'variações duplicadas!');
   });
 
-  // ============================================================
-  // 4. Atualização de preço e estoque na segunda importação
-  // ============================================================
-  console.log('\n📋 4. Atualização de Preço e Estoque');
-
-  await test('Mudanças de preço/estoque no adapter refletem no banco (upsert)', async () => {
+  it('10. Mudanças de preço/estoque no adapter refletem no banco (upsert)', async () => {
     const client = new FakePrismaClient();
 
-    // 1ª importação com dataset padrão
     await ImportService.executeImportJob(client as unknown as import('@prisma/client').PrismaClient, ACCOUNT_CONFIG, 'lucas@festum.com');
 
-    // 2ª importação com dataset modificado (preço + estoque alterados)
     const modified = generateDemoMarketplaceData();
     const target = modified.find(l => l.externalListingId === 'FDM-0001')!;
     target.title = 'Painel Redondo (1.50m) - PREÇO PROMOCIONAL';
-    target.variations[0].price = 49.9;   // antes: 99.9 * 1 = 99.9
-    target.variations[0].stock = 2;      // antes: 0
+    target.variations[0].price = 49.9;
+    target.variations[0].stock = 2;
 
     const adapter = new FakeMarketplaceAdapter('shopee', 'acc-shopee-demo', modified);
     const summary = await ImportService.executeImportJob(client as unknown as import('@prisma/client').PrismaClient, ACCOUNT_CONFIG, 'lucas@festum.com', adapter);
     assert.strictEqual(summary.createdListings, 0);
     assert.ok(summary.updatedListings >= 1);
 
-    // Confirma o novo valor/estoque persistidos
     const listingKey = `acc-shopee-demo|FDM-0001`;
     const listing = client.listings.get(listingKey);
     assert.ok(listing, 'anúncio FDM-0001 não persistido');
@@ -234,12 +185,7 @@ async function runTests() {
     assert.strictEqual(variation.stock, 2);
   });
 
-  // ============================================================
-  // 5. MatchingService com diferentes padrões de SKU
-  // ============================================================
-  console.log('\n📋 5. MatchingService vs Padrões de SKU DEMO');
-
-  await test('SKUs idênticos em anúncios diferentes => match forte', () => {
+  it('11. SKUs idênticos em anúncios diferentes => match forte', () => {
     const r = calculateMatchConfidence(
       { sku: 'Z - Red150 - Zoologico - 04', title: 'Painel Zoologico 04 1.50m' },
       { sku: 'Z - Red150 - Zoologico - 04', title: 'Painel Zoologico Ed. Licenciada' }
@@ -247,7 +193,7 @@ async function runTests() {
     assert.ok(r.confidenceScore >= 60, `score = ${r.confidenceScore}`);
   });
 
-  await test('Diferenças de espaços e separadores são normalizadas', () => {
+  it('12. Diferenças de espaços e separadores são normalizadas', () => {
     assert.strictEqual(
       normalizeSkuForComparison('Z-Red100-Zoologico-04'),
       normalizeSkuForComparison('Z - Red100 - Zoologico - 04')
@@ -258,14 +204,14 @@ async function runTests() {
     );
   });
 
-  await test('Letras maiúsculas e minúsculas são normalizadas', () => {
+  it('13. Letras maiúsculas e minúsculas são normalizadas', () => {
     assert.strictEqual(
       normalizeSkuForComparison('z - red80 - zoologico - 04'),
       normalizeSkuForComparison('Z - Red80 - Zoologico - 04')
     );
   });
 
-  await test('Títulos semelhantes aumentam o score de match', () => {
+  it('14. Títulos semelhantes aumentam o score de match', () => {
     const r = calculateMatchConfidence(
       { sku: 'Z - Red150 - Zoologico - 04', title: 'Painel Zoologico 04 1.50m' },
       { sku: 'Z - Red150 - Zoologico - 04', title: 'Painel Divertido Zoo Estampa 04' }
@@ -273,7 +219,7 @@ async function runTests() {
     assert.ok(r.confidenceScore >= 60, `score = ${r.confidenceScore}`);
   });
 
-  await test('Mesmo tema/código em medidas diferentes => divergência de medida', () => {
+  it('15. Mesmo tema/código em medidas diferentes => divergência de medida', () => {
     const r = calculateMatchConfidence(
       { sku: 'Z - Red100 - Zoologico - 04', title: 'Painel Zoologico Quarto Red100' },
       { sku: 'Z - Red120 - Zoologico - 04', title: 'Painel Zoologico Quarto Red120' }
@@ -285,7 +231,7 @@ async function runTests() {
     assert.ok(r.confidenceScore <= 50, `score travado = ${r.confidenceScore}`);
   });
 
-  await test('Anúncio sem SKU => score baixo / sem match por SKU', () => {
+  it('16. Anúncio sem SKU => score baixo / sem match por SKU', () => {
     const r = calculateMatchConfidence(
       { sku: '', title: 'Painel Baby Festa (SKU pendente)' },
       { sku: 'Z - Red100 - Zoologico - 04', title: 'Painel Zoologico 1.00m' }
@@ -293,16 +239,15 @@ async function runTests() {
     assert.ok(r.confidenceScore < 60, `score = ${r.confidenceScore}`);
   });
 
-  await test('SKUs parcialmente incompatíveis (tema diferente, código igual)', () => {
+  it('17. SKUs parcialmente incompatíveis (tema diferente, código igual)', () => {
     const r = calculateMatchConfidence(
       { sku: 'Z - Red50 - Zoologico - 04', title: 'Painel Zoologico 04' },
       { sku: 'Z - Red50 - Arraia - 02', title: 'Painel Arraia 02' }
     );
-    // SKU difere => não deve ser match forte
     assert.ok(r.confidenceScore < 60, `score = ${r.confidenceScore}`);
   });
 
-  await test('decomposeSku lê SKUs Festum Decor (prefixo/medida/tema/código)', () => {
+  it('18. decomposeSku lê SKUs Festum Decor (prefixo/medida/tema/código)', () => {
     const d = decomposeSku('Z - Red50 - Zoologico - 04');
     assert.strictEqual(d.prefix, 'Z');
     assert.strictEqual(d.size, 'Red50');
@@ -310,12 +255,7 @@ async function runTests() {
     assert.strictEqual(d.code, '04');
   });
 
-  // ============================================================
-  // 6. Estados variados no dataset
-  // ============================================================
-  console.log('\n📋 6. Estados Variados (ativos, pausados, estoque zero/baixo)');
-
-  await test('Dataset contém anúncios ativos e pausados', () => {
+  it('19. Dataset contém anúncios ativos e pausados', () => {
     const all = generateDemoMarketplaceData();
     const actives = all.filter(l => l.status === 'ACTIVE');
     const paused = all.filter(l => l.status === 'PAUSED');
@@ -323,7 +263,7 @@ async function runTests() {
     assert.ok(paused.length >= 5, `paused = ${paused.length}`);
   });
 
-  await test('Dataset contém variações com estoque zero e estoque baixo', () => {
+  it('20. Dataset contém variações com estoque zero e estoque baixo', () => {
     const all = generateDemoMarketplaceData();
     const zeroStock = all.flatMap(l => l.variations).filter(v => v.stock === 0);
     const lowStock = all.flatMap(l => l.variations).filter(v => v.stock >= 1 && v.stock <= 2);
@@ -331,30 +271,11 @@ async function runTests() {
     assert.ok(lowStock.length >= 5, `low = ${lowStock.length}`);
   });
 
-  await test('Dataset contém preços variados e múltiplas variações por anúncio', () => {
+  it('21. Dataset contém preços variados e múltiplas variações por anúncio', () => {
     const all = generateDemoMarketplaceData();
     const prices = new Set(all.flatMap(l => l.variations).map(v => v.price));
     assert.ok(prices.size >= 20, `preços distintos = ${prices.size}`);
     const multi = all.filter(l => l.variations.length >= 3);
     assert.ok(multi.length >= 20, `anúncios com 3+ variações = ${multi.length}`);
   });
-
-  // ============================================================
-  // RESULTADO FINAL
-  // ============================================================
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`📊 Resultado: ${passed} passaram, ${failed} falharam (total: ${passed + failed})`);
-  console.log(`${'='.repeat(60)}`);
-
-  if (failed > 0) {
-    console.error('\n❌ ALGUNS TESTES FALHARAM!');
-    process.exit(1);
-  } else {
-    console.log('\n🎉 TODOS OS TESTES AUTOMATIZADOS DO CONJUNTO DEMO FORAM CONCLUÍDOS COM SUCESSO!');
-  }
-}
-
-runTests().catch(err => {
-  console.error('❌ Erro fatal nos testes:', err);
-  process.exit(1);
 });

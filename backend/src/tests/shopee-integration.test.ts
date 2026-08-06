@@ -118,13 +118,11 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
     assert.strictEqual(validCfg.valid, true);
     assert.strictEqual(validCfg.environment, 'sandbox');
 
-    // Testar rejeição de ambiente inválido
     process.env.SHOPEE_ENVIRONMENT = 'invalid_env';
     assert.throws(() => {
       ShopeeApiClient.validateEnvironmentConfig();
     }, /SHOPEE_ENVIRONMENT inválido ou ausente/);
 
-    // Restaurar ambiente sandbox seguro
     process.env.SHOPEE_ENVIRONMENT = 'sandbox';
   });
 
@@ -159,7 +157,6 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
     assert.strictEqual(view.environment, 'sandbox');
     assert.ok(view.lastAuthorizedAt !== null);
 
-    // Confirmar que tokens criptografados NUNCA aparecem na view
     assert.strictEqual((view as any).accessTokenEncrypted, undefined);
     assert.strictEqual((view as any).refreshTokenEncrypted, undefined);
   });
@@ -202,7 +199,6 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
       marketplaceOAuthState: {
         updateMany: async (query: any) => {
           callCount++;
-          // Apenas a primeira chamada concorrente obterá count === 1
           if (!createdStateRecord.usedAt) {
             createdStateRecord.usedAt = query.data.usedAt;
             return { count: 1 };
@@ -250,9 +246,8 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
 
     const mockTx = {
       marketplaceListing: {
-        findMany: async () => [{ id: 'listing-demo-1', masterProductId: 'master-1' }],
-        deleteMany: async () => ({ count: 1 }),
-        count: async () => 0
+        findMany: async () => [{ id: 'listing-demo-1' }],
+        deleteMany: async () => ({ count: 1 })
       },
       marketplaceListingImage: { deleteMany: async () => ({ count: 1 }) },
       marketplaceVariation: { deleteMany: async () => ({ count: 1 }) },
@@ -262,8 +257,7 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
           deletedAccountIds.push(...query.where.id.in);
           return { count: query.where.id.in.length };
         }
-      },
-      masterProduct: { delete: async () => ({}) }
+      }
     };
 
     const mockPrisma = {
@@ -281,5 +275,22 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
     assert.strictEqual(res.accountsDeleted, 2);
     assert.strictEqual(res.listingsDeleted, 1);
     assert.deepStrictEqual(deletedAccountIds, ['acc-shopee-demo', 'acc-meli-demo']);
+  });
+
+  it('11. Trava de Segurança: cleanupDemoData aborta imediatamente se qualquer conta com isDemo=false for selecionada', async () => {
+    const mockPrisma = {
+      marketplaceAccount: {
+        findMany: async () => [
+          { id: 'acc-shopee-demo', isDemo: true },
+          { id: 'acc-shopee-real-2035668', isDemo: false }
+        ]
+      }
+    } as any;
+
+    await assert.rejects(async () => {
+      await cleanupDemoData(mockPrisma);
+    }, (err: any) => {
+      return err.message.includes('ABORTADO: Tentativa de remoção de dados DEMO envolveu contas reais');
+    });
   });
 });
