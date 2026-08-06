@@ -113,8 +113,9 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
-### 9. 🧪 Suíte de Testes Automatizados (131 Testes Passing)
-- **Backend (114 testes em 8 suítes)**: 
+### 9. 🧪 Suíte de Testes Automatizados (138 Testes Passing)
+- **Backend (121 testes em 9 suítes)**: 
+  - `shopee-integration.test.ts` (7 cenários): assinatura HMAC-SHA256, URL OAuth, validação de state (CSRF), criptografia AES-256-GCM, bloqueio de adapter DEMO, guarda de somente leitura (`REAL_MARKETPLACE_WRITES_DISABLED`) e capabilities.
   - `demo-data.test.ts` (21 cenários): idempotência de importação, upsert de preços/estoques, estados variados e resiliência.
   - `grouping-matching.test.ts` (19 cenários): 19 cenários obrigatórios de agrupamento multicanal, decomposição Festum Decor, níveis de confiança, auto-link e isolamento de org.
   - `listings.test.ts` (8 cenários): contrato de listagem de anúncios via PostgreSQL, isolamento de organização e formato dos DTOs.
@@ -127,7 +128,7 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
   - `account-source.test.js` (10 testes): fonte única de contas via API, migração v5 e detecção de erro 404.
   - `grouping-ui.test.js` (3 testes): interface da aba de Agrupamento Multicanal, cards de vínculo pendente e estrutura de exportação CSV.
   - `listings-ui.test.js` (4 testes): layout dos cards de anúncio, resiliência do placeholder SVG inline, badge counter do menu lateral e limites responsivos de colunas.
-- **TOTAL DE TESTES AUTOMATIZADOS**: **131 testes com 100% de aprovação (0 falhas)**.
+- **TOTAL DE TESTES AUTOMATIZADOS**: **138 testes com 100% de aprovação (0 falhas)**.
 
 ---
 
@@ -148,7 +149,21 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
-### 11. 📋 Fontes de Dados, Validação Pública e Infraestrutura Oficial
+### 11. 🛍️ Integração Real da Shopee em Modo Somente Leitura (Fase 4.1)
+- **Shopee Open API v2**:
+  - Cliente oficial HTTP (`ShopeeApiClient`) com gerador de assinatura HMAC-SHA256 (`generateSign`) e retentativa exponencial com jitter em caso de rate limit (`429`) ou erro de servidor (`5xx`).
+- **Autorização OAuth2 & CSRF Protection**:
+  - Fluxo oficial com `GET /api/marketplaces/shopee/authorize` (geração de state assinado com HMAC e expiração de 10 min) e `GET /api/marketplaces/shopee/callback`.
+- **Armazenamento Seguro & Renovação Automática**:
+  - Tokens de acesso e refresh mantidos 100% criptografados no PostgreSQL via AES-256-GCM.
+  - Renovação atômica de tokens antes da expiração com trava de concorrência (`refreshLockSet`).
+- **Adapter Real `ShopeeMarketplaceAdapter`**:
+  - Busca paginada completa (`get_item_list` com `cursor` + `get_item_base_info` em lotes de 50 + `get_model_list` para variações).
+  - **Guarda Criptográfica de Somente Leitura**: Qualquer tentativa de escrita remota com `ENABLE_REAL_MARKETPLACE_WRITES=false` retorna o erro estruturado `REAL_MARKETPLACE_WRITES_DISABLED`.
+
+---
+
+### 12. 📋 Fontes de Dados, Validação Pública e Infraestrutura Oficial
 
 **1. Contas DEMO e Dataset Multicanal Persistido no PostgreSQL:**
 - **4 Contas DEMO Isoladas (`isDemo=true`)**:
@@ -179,12 +194,12 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 - Múltiplas contas por marketplace (API única com 4 contas DEMO)
 - Publicador Multi-Post (Drag & Drop + Progresso)
 - Importação idempotente com FakeMarketplaceAdapter (53 anúncios / 132 variações)
-- Importação idempotente + MatchingService + PreviewService
+- Integração Real Shopee Open API v2 Modo Somente Leitura (`ShopeeMarketplaceAdapter`, `ShopeeAuthService`, AES-256-GCM tokens)
 - Central de Anúncios Estilo Catálogo Seller Central (1 card = 1 anúncio) + Sub-abas + Modal Drawer de 5 abas internas
 - Agrupamento Multicanal de Produtos + Sugestões de Vínculo com Confiança (%) + Exportação CSV Completa (`/api/marketplace-listings/export-csv`)
 - Fila SKU assíncrona + Escopo padrão seguro `SINGLE_VARIATION` + Rollback/Desfazer
 - Imagens Persistentes no PostgreSQL (`MarketplaceListingImage`), Migration Oficial (`20260805000000_phase3_images`), Serviço de Armazenamento Seguro (`ImageStorageService`), Validação Magic Bytes (JPG, PNG, WEBP até 5MB), Proteção SSRF em URLs externas e Cascata de Fallback Visual em 4 Níveis (`resolveCardImage`).
-- **Testes Automatizados**: **131 passing** (114 backend + 17 frontend com 0 falhas)
+- **Testes Automatizados**: **138 passing** (121 backend + 17 frontend com 0 falhas)
 - CORS + P2021 handling + Health checks
 - Deploy Render (Backend API) + Cloudflare Workers (Frontend Principal) + Netlify (Frontend Secundário) configurados
 

@@ -30,6 +30,7 @@ import { listMarketplaceListings } from './services/listings.service.js';
 import { GroupsService } from './services/groups.service.js';
 import { MarketplaceRulesService } from './services/marketplace-rules.service.js';
 import { ImageStorageService } from './services/image-storage.service.js';
+import { ShopeeAuthService } from './services/shopee-auth.service.js';
 
 dotenv.config();
 
@@ -395,6 +396,95 @@ app.put('/api/marketplace-accounts/:id', authenticateToken, async (req: Authenti
         message: toFriendlyDbErrorMessage(err, 'Não foi possível atualizar a conta de marketplace.')
       }
     });
+  }
+});
+
+/* ==========================================================================
+   ROTAS DE AUTORIZAÇÃO E OAUTH SHOPEE REAL (FASE 4.1)
+   ========================================================================== */
+
+app.get('/api/marketplaces/shopee/authorize', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const authUrl = ShopeeAuthService.generateAuthorizeUrl(req.user!.organizationId, req.user!.userId);
+    return res.json({ success: true, authUrl });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.get('/api/marketplaces/shopee/callback', async (req: Request, res: Response) => {
+  try {
+    const code = req.query.code as string;
+    const shopId = Number(req.query.shop_id || req.query.shop_id_list);
+    const state = req.query.state as string;
+
+    if (!code || !shopId || !state) {
+      return res.status(400).send('<h1>Erro 400: Parâmetros OAuth Shopee inválidos ou ausentes.</h1>');
+    }
+
+    const statePayload = ShopeeAuthService.validateState(state);
+    if (!statePayload) {
+      return res.status(400).send('<h1>Erro 400: State de autorização expirado ou inválido (CSRF Protection).</h1>');
+    }
+
+    const account = await ShopeeAuthService.handleCallback(prisma, code, shopId, statePayload);
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://lx-syncmarketplace.lczinz.workers.dev';
+    return res.redirect(`${frontendUrl}?shopee_connected=true&account_id=${account.id}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[SHOPEE-CALLBACK-ERROR]', message);
+    return res.status(500).send(`<h1>Erro 500 ao autorizar loja Shopee: ${message}</h1>`);
+  }
+});
+
+app.post('/api/marketplaces/shopee/disconnect', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { accountId } = req.body;
+    if (!accountId) {
+      return res.status(400).json({ success: false, error: 'accountId é obrigatório.' });
+    }
+
+    const disconnected = await ShopeeAuthService.disconnectAccount(
+      prisma,
+      req.user!.organizationId,
+      req.user!.userId,
+      accountId
+    );
+
+    if (!disconnected) {
+      return res.status(404).json({ success: false, error: 'Conta Shopee não encontrada.' });
+    }
+
+    return res.json({ success: true, message: 'Conta Shopee desconectada com sucesso.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.get('/api/marketplaces/shopee/connection-status', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accounts = await prisma.marketplaceAccount.findMany({
+      where: { organizationId: req.user!.organizationId, marketplace: 'shopee', isDemo: false }
+    });
+
+    return res.json({
+      success: true,
+      hasRealConnection: accounts.length > 0,
+      accounts: accounts.map(a => ({
+        id: a.id,
+        accountName: a.accountName,
+        shopId: a.shopId ? `${a.shopId.slice(0, 3)}****${a.shopId.slice(-2)}` : undefined,
+        status: a.status,
+        lastSyncAt: a.lastSyncAt,
+        tokenExpiresAt: a.tokenExpiresAt
+      }))
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ success: false, error: message });
   }
 });
 

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { FakeMarketplaceAdapter } from '../marketplaces/fake-marketplace.adapter.js';
+import { ShopeeMarketplaceAdapter } from '../marketplaces/shopee.adapter.js';
 import { MarketplaceAdapter } from '../marketplaces/marketplace-adapter.interface.js';
 
 export interface ImportAccountConfig {
@@ -28,8 +29,7 @@ export interface ImportJobSummary {
 
 /**
  * Executa a importação idempotente de anúncios e variações de uma conta de
- * marketplace (FakeMarketplaceAdapter em modo demonstração) e PERSISTE no
- * PostgreSQL: ImportJob, MarketplaceListing e MarketplaceVariation (upsert).
+ * marketplace (ShopeeMarketplaceAdapter para contas reais, FakeMarketplaceAdapter para DEMO).
  */
 export class ImportService {
   static async executeImportJob(
@@ -39,9 +39,21 @@ export class ImportService {
     adapterOverride?: MarketplaceAdapter
   ): Promise<ImportJobSummary> {
     const jobId = `job-imp-${Date.now()}`;
-    const adapter = adapterOverride || new FakeMarketplaceAdapter(accountConfig.marketplace, accountConfig.id);
+    let adapter = adapterOverride;
 
-    // 1. Busca anúncios e variações no adapter (MODO DEMONSTRAÇÃO)
+    if (!adapter) {
+      if (typeof (client?.marketplaceAccount as any)?.findUnique === 'function') {
+        const dbAccount = await client.marketplaceAccount.findUnique({ where: { id: accountConfig.id } });
+        if (dbAccount && !dbAccount.isDemo && dbAccount.marketplace.toLowerCase() === 'shopee') {
+          adapter = new ShopeeMarketplaceAdapter(dbAccount, client);
+        }
+      }
+      if (!adapter) {
+        adapter = new FakeMarketplaceAdapter(accountConfig.marketplace, accountConfig.id);
+      }
+    }
+
+    // 1. Busca anúncios e variações no adapter (Paginado até o fim)
     const listingsRes = await adapter.listListings({ limit: 100 });
     const listingsWithVars: Array<Record<string, unknown>> = [];
 

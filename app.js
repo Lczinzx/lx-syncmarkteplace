@@ -1386,7 +1386,9 @@ function renderAccountsGrid() {
               <h3 style="font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">
                 ${escapeHtml(acc.accountName || acc.sellerName || acc.name || meta.name)}
               </h3>
-              ${acc.isDemo === true ? '<span style="background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.4); color: #FBBF24; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">CONTA DE DEMONSTRAÇÃO</span>' : ''}
+              ${acc.isDemo === true 
+                ? '<span style="background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.4); color: #FBBF24; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">CONTA DE DEMONSTRAÇÃO</span>' 
+                : '<span style="background: rgba(16,185,129,0.18); border: 1px solid rgba(16,185,129,0.4); color: #10B981; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">🔒 CONTA REAL (SOMENTE LEITURA)</span>'}
             </div>
             <p style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin: 0;">
               ${escapeHtml(meta.name)} • ID: <code class="code-tag">${escapeHtml(acc.sellerId || acc.shopId || acc.id)}</code>
@@ -1505,6 +1507,28 @@ function renderMultiPostAccountsList() {
 function setupEventListeners() {
   const btnSyncAll = document.getElementById('btn-sync-all-header');
   if (btnSyncAll) btnSyncAll.addEventListener('click', handleSyncAllHeader);
+
+  const btnAuthShopee = document.getElementById('btn-authorize-shopee');
+  if (btnAuthShopee) {
+    btnAuthShopee.addEventListener('click', async () => {
+      btnAuthShopee.disabled = true;
+      btnAuthShopee.innerHTML = `🔄 Gerando URL...`;
+      try {
+        const res = await apiFetch('/api/marketplaces/shopee/authorize');
+        if (res.success && res.authUrl) {
+          showNotification('info', 'Autorização Shopee', 'Redirecionando para a página oficial de autorização da Shopee Open Platform...');
+          window.location.href = res.authUrl;
+        } else {
+          showNotification('error', 'Falha na Autorização', res.error || 'Não foi possível gerar a URL de autorização da Shopee.');
+        }
+      } catch (e) {
+        showNotification('error', 'Erro na Autorização', e.message);
+      } finally {
+        btnAuthShopee.disabled = false;
+        btnAuthShopee.innerHTML = `🛍️ Conectar Loja Shopee Real`;
+      }
+    });
+  }
 
   const searchInput = document.getElementById('search-sku-input');
   if (searchInput) {
