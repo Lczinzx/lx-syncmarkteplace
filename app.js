@@ -1562,6 +1562,20 @@ function setupEventListeners() {
     });
   }
 
+  const filterAccountTypeSelect = document.getElementById('filter-account-type-select');
+  if (filterAccountTypeSelect) {
+    filterAccountTypeSelect.addEventListener('change', (e) => {
+      const type = e.target.value;
+      if (type === 'all') {
+        renderMarketplaceListings(currentListings);
+      } else if (type === 'real') {
+        renderMarketplaceListings(currentListings.filter(l => l.account && l.account.isDemo === false));
+      } else if (type === 'demo') {
+        renderMarketplaceListings(currentListings.filter(l => !l.account || l.account.isDemo === true));
+      }
+    });
+  }
+
   const btnAddSku = document.getElementById('btn-add-sku');
   if (btnAddSku) btnAddSku.addEventListener('click', () => openSkuModal());
 
