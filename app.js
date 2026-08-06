@@ -1609,7 +1609,7 @@ function setupEventListeners() {
         const res = await apiFetch('/api/marketplaces/shopee/authorize?environment=production');
         if (res.success && res.authUrl) {
           showNotification('info', 'Autorização Shopee Produção', 'Redirecionando para a página oficial da Shopee (Produção)...');
-          window.location.href = res.authUrl;
+          window.location.assign(res.authUrl);
         } else {
           showNotification('error', 'Falha na Autorização', res.error || 'Não foi possível gerar a URL de autorização de produção da Shopee.');
         }
@@ -1631,7 +1631,7 @@ function setupEventListeners() {
         const res = await apiFetch('/api/marketplaces/shopee/authorize?environment=sandbox');
         if (res.success && res.authUrl) {
           showNotification('info', 'Autorização Shopee Sandbox', 'Redirecionando para a página de teste da Shopee (Sandbox)...');
-          window.location.href = res.authUrl;
+          window.location.assign(res.authUrl);
         } else {
           showNotification('error', 'Falha na Autorização', res.error || 'Não foi possível gerar a URL de autorização de sandbox da Shopee.');
         }
@@ -1681,11 +1681,13 @@ function setupEventListeners() {
     filterAccountTypeSelect.addEventListener('change', (e) => {
       const type = e.target.value;
       if (type === 'production') {
-        renderMarketplaceListings(currentListings.filter(l => l.account && l.account.environment === 'production'));
+        renderMarketplaceListings(currentListings.filter(l => Boolean(l.account && l.account.isDemo === false && l.account.environment === 'production')));
       } else if (type === 'sandbox') {
-        renderMarketplaceListings(currentListings.filter(l => !l.account || l.account.environment === 'sandbox'));
+        renderMarketplaceListings(currentListings.filter(l => Boolean(l.account && l.account.isDemo === false && l.account.environment === 'sandbox')));
       } else if (type === 'real') {
-        renderMarketplaceListings(currentListings.filter(l => l.account && l.account.isDemo === false));
+        renderMarketplaceListings(currentListings.filter(l => Boolean(l.account && l.account.isDemo === false)));
+      } else if (type === 'demo') {
+        renderMarketplaceListings(currentListings.filter(l => Boolean(l.account && l.account.isDemo === true)));
       } else {
         renderMarketplaceListings(currentListings);
       }
