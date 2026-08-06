@@ -113,17 +113,21 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
-### 9. 🧪 Suíte de Testes Automatizados (85 Testes Passing)
-- **Backend (68 testes)**: 
-  - 32 testes de validação de e-mails admin, criptografia AES-256-GCM, FakeMarketplaceAdapter, segurança Google OAuth (JWT) e tratamento de erros do Prisma (P2021).
-  - 21 testes do conjunto DEMO (idempotência de importação, upsert de preços/estoques, estados variados e resiliência).
-  - 8 testes de contrato de listagem de anúncios (`/api/marketplace-listings`).
-  - 7 testes de Agrupamento Multicanal & Matching (`MatchingService`, decomposição Festum Decor e contrato de grupos).
-  - 4 testes de transformação de SKUs, parser, chave SHA-256 e Rollback/Desfazer (Fase 3).
+### 9. 🧪 Suíte de Testes Automatizados (131 Testes Passing)
+- **Backend (114 testes em 8 suítes)**: 
+  - `demo-data.test.ts` (21 cenários): idempotência de importação, upsert de preços/estoques, estados variados e resiliência.
+  - `grouping-matching.test.ts` (19 cenários): 19 cenários obrigatórios de agrupamento multicanal, decomposição Festum Decor, níveis de confiança, auto-link e isolamento de org.
+  - `listings.test.ts` (8 cenários): contrato de listagem de anúncios via PostgreSQL, isolamento de organização e formato dos DTOs.
+  - `phase1-6-multichannel-coldstart.test.ts` (6 cenários): 4 contas DEMO isoladas, grupo mestre multicanal, boot não-bloqueante e in-flight promise reuse.
+  - `phase2-multichannel-edit.test.ts` (15 cenários): 6 escopos de edição, preview imutável, fila com retry/pause/resume/cancel, idempotência SHA-256 e Rollback auditável.
+  - `phase3-persistent-images.test.ts` (10 cenários): validação Magic Bytes (JPG, PNG, WEBP até 5MB), SSRF protection, fallback em 4 níveis e storage key SHA-256.
+  - `phase3-seller-center-ui.test.ts` (4 cenários): fallback 4 níveis da UI, escopo seguro `SINGLE_VARIATION`, separabilidade de contadores e DTO com canais vinculados.
+  - `phase3.test.js` (31 cenários): regras de transformação de SKUs, parser Festum Decor e fila assíncrona.
 - **Frontend (17 testes)**: 
-  - 10 testes de fonte única de contas via API, migração v5 e detecção 404.
-  - 3 testes de interface da aba de Agrupamento Multicanal, cards de vínculo pendente e estrutura da exportação CSV.
-  - 4 testes de layout dos cards de anúncio, resiliência do placeholder SVG inline, badge counter do menu lateral e limites responsivos de colunas.
+  - `account-source.test.js` (10 testes): fonte única de contas via API, migração v5 e detecção de erro 404.
+  - `grouping-ui.test.js` (3 testes): interface da aba de Agrupamento Multicanal, cards de vínculo pendente e estrutura de exportação CSV.
+  - `listings-ui.test.js` (4 testes): layout dos cards de anúncio, resiliência do placeholder SVG inline, badge counter do menu lateral e limites responsivos de colunas.
+- **TOTAL DE TESTES AUTOMATIZADOS**: **131 testes com 100% de aprovação (0 falhas)**.
 
 ---
 
@@ -144,28 +148,27 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
-### 11. 📋 Relatório Final — Correção da Fonte de Contas (API como Única Fonte)
+### 11. 📋 Fontes de Dados, Validação Pública e Infraestrutura Oficial
 
-**1. Origem exata do ID antigo (`acc-shopee-1785758705262`):**
-**1. Fontes de Dados e Contas DEMO:**
+**1. Contas DEMO e Dataset Multicanal Persistido no PostgreSQL:**
 - **4 Contas DEMO Isoladas (`isDemo=true`)**:
-  - `acc-shopee-demo` (Shopee): 50 anúncios, 129 variações.
-  - `acc-mercadolivre-demo` (Mercado Livre): 1 anúncio (`FDM-ML-0001`), 1 variação.
-  - `acc-tiktok-demo` (TikTok Shop): 1 anúncio (`FDM-TT-0001`), 1 variação.
-  - `acc-amazon-demo` (Amazon BR): 1 anúncio (`FDM-AMZ-0001`), 1 variação.
+  - `acc-shopee-demo` (Shopee): **50 anúncios / 129 variações**
+  - `acc-mercadolivre-demo` (Mercado Livre): **1 anúncio (`FDM-ML-0001`) / 1 variação**
+  - `acc-tiktok-demo` (TikTok Shop): **1 anúncio (`FDM-TT-0001`) / 1 variação**
+  - `acc-amazon-demo` (Amazon BR): **1 anúncio (`FDM-AMZ-0001`) / 1 variação**
 - **Produto Mestre Central Multicanal**: `mp-Z_Red50_Zoologico_04` (SKU Central: `Z - Red50 - Zoologico - 04`) vinculando exatamente 4 anúncios (1 de cada conta de marketplace).
 - **Contagem Global Persistida**: **53 anúncios e 132 variações** no total global das 4 contas. (Filtro exclusivo por Shopee exibe exatamente 50 anúncios / 129 variações).
 
-**2. Suíte de Testes Automatizados (131 Testes Passing):**
-- **Testes Backend**: 8 suítes / 114 cenários unitários e de integração (`demo-data` 21, `grouping-matching` 19, `listings` 8, `phase1-6-multichannel-coldstart` 6, `phase2-multichannel-edit` 15, `phase3-persistent-images` 10, `phase3-seller-center-ui` 4, `phase3` 31).
-- **Testes Frontend**: 17 cenários unitários.
-- **TOTAL DE TESTES AUTOMATIZADOS**: **131 testes com 100% de aprovação**.
+**2. Validação Pública dos Dados e Canais Vinculados:**
+- **Endpoint GET `/api/marketplace-listings`**: Retorna **53 anúncios e 132 variações** sem aplicação de filtro padronizado no servidor.
+- **Respostas de Imagens HTTP 200 OK**: Mídias servidas via Unsplash CDN com respostas **200 OK** sem falhas de CORS ou fallback prematuro.
+- **Anúncio Central `FDM-0001`**: Retorna `linkedChannels` contendo os 3 marketplaces adicionais (Mercado Livre `FDM-ML-0001`, TikTok `FDM-TT-0001`, Amazon `FDM-AMZ-0001`), exibindo o badge **"Vinculado em 4 canais"** com os 4 badges neon na interface.
 
-**3. Resposta de `GET /api/marketplace-accounts` e `GET /api/marketplace-listings` (fonte única):**
-- Lista real vinda do PostgreSQL via Prisma: `{ success: true, accounts: [...] }` e `{ success: true, listings: [...] }`.
-- URLs públicas de deploy validadas:
-  - Frontend Cloudflare Workers: `https://lx-syncmarketplace.lczinz.workers.dev`
-  - Backend API Render: `https://lx-sync-api.onrender.com`
+**3. Arquitetura e Infraestrutura de Deploy Oficial:**
+- **Cloudflare Workers (Frontend Principal 24/7)**: `https://lx-syncmarketplace.lczinz.workers.dev`
+- **Render (Backend API Node.js / Express)**: `https://lx-sync-api.onrender.com`
+- **PostgreSQL (Database)**: Fonte única e autoritativa de dados e estado.
+- **Netlify (Frontend Alternativo/Secundário)**: `https://lxsync.netlify.app`
 
 ---
 
@@ -181,7 +184,7 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 - Agrupamento Multicanal de Produtos + Sugestões de Vínculo com Confiança (%) + Exportação CSV Completa (`/api/marketplace-listings/export-csv`)
 - Fila SKU assíncrona + Escopo padrão seguro `SINGLE_VARIATION` + Rollback/Desfazer
 - Imagens Persistentes no PostgreSQL (`MarketplaceListingImage`), Migration Oficial (`20260805000000_phase3_images`), Serviço de Armazenamento Seguro (`ImageStorageService`), Validação Magic Bytes (JPG, PNG, WEBP até 5MB), Proteção SSRF em URLs externas e Cascata de Fallback Visual em 4 Níveis (`resolveCardImage`).
-- **Testes Automatizados**: **131 passing** (114 backend + 17 frontend)
+- **Testes Automatizados**: **131 passing** (114 backend + 17 frontend com 0 falhas)
 - CORS + P2021 handling + Health checks
 - Deploy Render (Backend API) + Cloudflare Workers (Frontend Principal) + Netlify (Frontend Secundário) configurados
 
