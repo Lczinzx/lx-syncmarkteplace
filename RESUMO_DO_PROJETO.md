@@ -113,9 +113,9 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
 
 ---
 
-### 9. 🧪 Suíte de Testes Automatizados (138 Testes Passing)
-- **Backend (121 testes em 9 suítes)**: 
-  - `shopee-integration.test.ts` (7 cenários): assinatura HMAC-SHA256, URL OAuth, validação de state (CSRF), criptografia AES-256-GCM, bloqueio de adapter DEMO, guarda de somente leitura (`REAL_MARKETPLACE_WRITES_DISABLED`) e capabilities.
+### 9. 🧪 Suíte de Testes Automatizados (139 Testes Passing)
+- **Backend (122 testes em 9 suítes)**: 
+  - `shopee-integration.test.ts` (8 cenários): assinatura HMAC-SHA256, URL OAuth, consumo atômico condicional (`updateMany`), resiliência a restart, teste de concorrência simultânea via `Promise.allSettled`, validação de boot (sandbox/production), DTO seguro e guarda de somente leitura (`REAL_MARKETPLACE_WRITES_DISABLED`).
   - `demo-data.test.ts` (21 cenários): idempotência de importação, upsert de preços/estoques, estados variados e resiliência.
   - `grouping-matching.test.ts` (19 cenários): 19 cenários obrigatórios de agrupamento multicanal, decomposição Festum Decor, níveis de confiança, auto-link e isolamento de org.
   - `listings.test.ts` (8 cenários): contrato de listagem de anúncios via PostgreSQL, isolamento de organização e formato dos DTOs.
@@ -128,7 +128,7 @@ Este documento resume todas as funcionalidades, módulos, identidade visual e ar
   - `account-source.test.js` (10 testes): fonte única de contas via API, migração v5 e detecção de erro 404.
   - `grouping-ui.test.js` (3 testes): interface da aba de Agrupamento Multicanal, cards de vínculo pendente e estrutura de exportação CSV.
   - `listings-ui.test.js` (4 testes): layout dos cards de anúncio, resiliência do placeholder SVG inline, badge counter do menu lateral e limites responsivos de colunas.
-- **TOTAL DE TESTES AUTOMATIZADOS**: **138 testes com 100% de aprovação (0 falhas)**.
+- **TOTAL DE TESTES AUTOMATIZADOS**: **139 testes com 100% de aprovação (0 falhas)**.
 
 ---
 

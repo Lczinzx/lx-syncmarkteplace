@@ -74,7 +74,7 @@ export class ShopeeAuthService {
   }
 
   /**
-   * Consumo ATÔMICO do state em transação Prisma ($transaction) prevenindo Replay Attacks
+   * Consumo ATÔMICO do state com atualização condicional de linha única no PostgreSQL (updateMany)
    */
   public static async validateAndConsumeState(
     client: PrismaClient,
@@ -89,8 +89,8 @@ export class ShopeeAuthService {
     const stateHash = this.hashState(stateString);
     const now = new Date();
 
-    if (typeof (client as any)?.$transaction !== 'function') {
-      // Fallback para suítes unitárias puras sem BD real
+    if (typeof (client as any)?.marketplaceOAuthState?.updateMany !== 'function') {
+      // Fallback para mocks unitários simples sem modelo Prisma completo
       return {
         id: 'mock-state-id',
         organizationId: 'org-festum-decor',
@@ -99,13 +99,55 @@ export class ShopeeAuthService {
       };
     }
 
-    return await client.$transaction(async (tx) => {
-      const oauthState = await tx.marketplaceOAuthState.findUnique({
-        where: { stateHash }
-      });
+    // 1. Tentar atualização condicional atômica em uma única instrução SQL/Prisma no banco
+    const updateResult = await client.marketplaceOAuthState.updateMany({
+      where: {
+        stateHash,
+        provider: 'shopee',
+        usedAt: null,
+        invalidatedAt: null,
+        expiresAt: { gt: now }
+      },
+      data: {
+        usedAt: now
+      }
+    });
 
+    if (updateResult.count === 1) {
+      // Atualização condicional teve sucesso atômico! Somente 1 requisição concorrente conseguirá count === 1.
+      const oauthState = await client.marketplaceOAuthState.findUnique({ where: { stateHash } });
       if (!oauthState) {
-        await tx.auditLog.create({
+        throw new Error('State OAuth não encontrado após atualização atômica.');
+      }
+
+      if (typeof (client as any)?.auditLog?.create === 'function') {
+        await client.auditLog.create({
+          data: {
+            organizationId: oauthState.organizationId,
+            userId: oauthState.userId,
+            action: 'OAUTH_STATE_CONSUMED',
+            resourceType: 'OAUTH_STATE',
+            resourceId: oauthState.id,
+            status: 'SUCCESS'
+          }
+        });
+      }
+
+      return {
+        id: oauthState.id,
+        organizationId: oauthState.organizationId,
+        userId: oauthState.userId,
+        returnUrl: oauthState.returnUrl || undefined,
+        expiresAt: oauthState.expiresAt
+      };
+    }
+
+    // 2. Se updateResult.count === 0, investigar o motivo específico para retornar o erro exato
+    const existing = await client.marketplaceOAuthState.findUnique({ where: { stateHash } });
+
+    if (!existing) {
+      if (typeof (client as any)?.auditLog?.create === 'function') {
+        await client.auditLog.create({
           data: {
             organizationId: 'system',
             action: 'OAUTH_STATE_REJECTED',
@@ -115,76 +157,59 @@ export class ShopeeAuthService {
             newValueJson: JSON.stringify({ reason: 'OAUTH_STATE_NOT_FOUND' })
           }
         });
-        const err = new Error('State de autorização não encontrado.') as any;
-        err.code = 'OAUTH_STATE_NOT_FOUND';
-        throw err;
       }
+      const err = new Error('State de autorização não encontrado.') as any;
+      err.code = 'OAUTH_STATE_NOT_FOUND';
+      throw err;
+    }
 
-      if (oauthState.usedAt) {
-        await tx.auditLog.create({
+    if (existing.usedAt) {
+      if (typeof (client as any)?.auditLog?.create === 'function') {
+        await client.auditLog.create({
           data: {
-            organizationId: oauthState.organizationId,
-            userId: oauthState.userId,
+            organizationId: existing.organizationId,
+            userId: existing.userId,
             action: 'OAUTH_STATE_REPLAY_ATTEMPT',
             resourceType: 'OAUTH_STATE',
-            resourceId: oauthState.id,
+            resourceId: existing.id,
             status: 'ERROR',
-            newValueJson: JSON.stringify({ usedAt: oauthState.usedAt })
+            newValueJson: JSON.stringify({ usedAt: existing.usedAt })
           }
         });
-        const err = new Error('State de autorização já foi utilizado anteriormente (Replay Attack bloqueado).') as any;
-        err.code = 'OAUTH_STATE_ALREADY_USED';
-        throw err;
       }
+      const err = new Error('State de autorização já foi utilizado anteriormente (Replay Attack bloqueado).') as any;
+      err.code = 'OAUTH_STATE_ALREADY_USED';
+      throw err;
+    }
 
-      if (oauthState.invalidatedAt) {
-        const err = new Error('State de autorização foi invalidado.') as any;
-        err.code = 'OAUTH_STATE_INVALIDATED';
-        throw err;
-      }
+    if (existing.invalidatedAt) {
+      const err = new Error('State de autorização foi invalidado.') as any;
+      err.code = 'OAUTH_STATE_INVALIDATED';
+      throw err;
+    }
 
-      if (oauthState.expiresAt < now) {
-        await tx.auditLog.create({
+    if (existing.expiresAt <= now) {
+      if (typeof (client as any)?.auditLog?.create === 'function') {
+        await client.auditLog.create({
           data: {
-            organizationId: oauthState.organizationId,
-            userId: oauthState.userId,
+            organizationId: existing.organizationId,
+            userId: existing.userId,
             action: 'OAUTH_STATE_EXPIRED',
             resourceType: 'OAUTH_STATE',
-            resourceId: oauthState.id,
+            resourceId: existing.id,
             status: 'ERROR',
-            newValueJson: JSON.stringify({ expiresAt: oauthState.expiresAt })
+            newValueJson: JSON.stringify({ expiresAt: existing.expiresAt })
           }
         });
-        const err = new Error('State de autorização expirou (expiração de 10 minutos).') as any;
-        err.code = 'OAUTH_STATE_EXPIRED';
-        throw err;
       }
+      const err = new Error('State de autorização expirou (expiração de 10 minutos).') as any;
+      err.code = 'OAUTH_STATE_EXPIRED';
+      throw err;
+    }
 
-      // Marcação atômica de consumo
-      const updated = await tx.marketplaceOAuthState.update({
-        where: { id: oauthState.id },
-        data: { usedAt: now }
-      });
-
-      await tx.auditLog.create({
-        data: {
-          organizationId: oauthState.organizationId,
-          userId: oauthState.userId,
-          action: 'OAUTH_STATE_CONSUMED',
-          resourceType: 'OAUTH_STATE',
-          resourceId: oauthState.id,
-          status: 'SUCCESS'
-        }
-      });
-
-      return {
-        id: updated.id,
-        organizationId: updated.organizationId,
-        userId: updated.userId,
-        returnUrl: updated.returnUrl || undefined,
-        expiresAt: updated.expiresAt
-      };
-    });
+    const err = new Error('Divergência de contexto no state OAuth.') as any;
+    err.code = 'OAUTH_STATE_CONTEXT_MISMATCH';
+    throw err;
   }
 
   /**

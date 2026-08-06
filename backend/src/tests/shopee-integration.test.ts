@@ -6,7 +6,7 @@ import { ShopeeMarketplaceAdapter } from '../marketplaces/shopee.adapter.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { toAccountView } from '../services/accounts.service.js';
 
-describe('⚡ FASE 4.1.1 — TESTES INTEGRADOS DA SHOPEE (OAUTH DURÁVEL NO POSTGRESQL & SEGURANÇA)', () => {
+describe('⚡ FASE 4.1.2 — TESTES INTEGRADOS DA SHOPEE (CONSUMO ATÔMICO & CONCORRÊNCIA DE STATE OAUTH)', () => {
   const samplePartnerId = 2005884;
   const samplePartnerKey = 'shopee_test_partner_key_99887766554433221100';
 
@@ -43,7 +43,8 @@ describe('⚡ FASE 4.1.1 — TESTES INTEGRADOS DA SHOPEE (OAUTH DURÁVEL NO POST
     assert.ok(authUrl.includes('state=shopee_state_'));
   });
 
-  it('3. Deve validar state legítimo e simular resiliência a reinício via consulta ao banco de dados', async () => {
+  it('3. Deve validar consumo atômico de linha única (updateMany condicional) no banco de dados', async () => {
+    let updateCount = 0;
     const createdStateRecord = {
       id: 'oauth-state-uuid-101',
       provider: 'shopee',
@@ -55,24 +56,20 @@ describe('⚡ FASE 4.1.1 — TESTES INTEGRADOS DA SHOPEE (OAUTH DURÁVEL NO POST
       invalidatedAt: null
     };
 
-    const mockTxPrisma = {
+    const mockPrisma = {
       marketplaceOAuthState: {
-        findUnique: async (query: any) => {
-          createdStateRecord.stateHash = query.where.stateHash;
-          return createdStateRecord;
-        },
-        update: async (query: any) => {
+        updateMany: async (query: any) => {
+          updateCount++;
           createdStateRecord.usedAt = query.data.usedAt;
+          return { count: 1 };
+        },
+        findUnique: async (query: any) => {
           return createdStateRecord;
         }
       },
       auditLog: {
         create: async () => {}
       }
-    };
-
-    const mockPrisma = {
-      $transaction: async (cb: any) => await cb(mockTxPrisma)
     } as any;
 
     const rawState = `shopee_state_test_hex_1234567890`;
@@ -80,28 +77,26 @@ describe('⚡ FASE 4.1.1 — TESTES INTEGRADOS DA SHOPEE (OAUTH DURÁVEL NO POST
 
     assert.strictEqual(payload.organizationId, 'org-festum-decor');
     assert.strictEqual(payload.userId, 'user-admin-123');
-    assert.ok(createdStateRecord.usedAt !== null); // Confirmar marcação atômica de consumo
+    assert.strictEqual(updateCount, 1);
+    assert.ok(createdStateRecord.usedAt !== null);
   });
 
   it('4. Deve rejeitar tentativa de Replay Attack (State já utilizado) com OAUTH_STATE_ALREADY_USED', async () => {
-    const mockTxPrisma = {
+    const mockPrisma = {
       marketplaceOAuthState: {
+        updateMany: async () => ({ count: 0 }),
         findUnique: async () => ({
           id: 'oauth-state-uuid-101',
           organizationId: 'org-festum-decor',
           userId: 'user-admin-123',
           expiresAt: new Date(Date.now() + 600000),
-          usedAt: new Date(Date.now() - 5000), // Já consumido há 5 segundos
+          usedAt: new Date(Date.now() - 5000), // Já utilizado há 5s
           invalidatedAt: null
         })
       },
       auditLog: {
         create: async () => {}
       }
-    };
-
-    const mockPrisma = {
-      $transaction: async (cb: any) => await cb(mockTxPrisma)
     } as any;
 
     await assert.rejects(async () => {
@@ -187,5 +182,53 @@ describe('⚡ FASE 4.1.1 — TESTES INTEGRADOS DA SHOPEE (OAUTH DURÁVEL NO POST
     }, (err: any) => {
       return err.code === 'REAL_MARKETPLACE_WRITES_DISABLED' && err.message.includes('Modo Somente Leitura');
     });
+  });
+
+  it('8. Deve garantir que duas chamadas simultâneas (Promise.allSettled) resultem em exatamente 1 consumo e 1 bloqueio de replay', async () => {
+    let callCount = 0;
+    const createdStateRecord = {
+      id: 'oauth-state-uuid-concurrency-88',
+      provider: 'shopee',
+      stateHash: '',
+      organizationId: 'org-festum-decor',
+      userId: 'user-admin-123',
+      expiresAt: new Date(Date.now() + 600000),
+      usedAt: null as Date | null,
+      invalidatedAt: null
+    };
+
+    const mockPrisma = {
+      marketplaceOAuthState: {
+        updateMany: async (query: any) => {
+          callCount++;
+          // Apenas a primeira chamada concorrente obterá count === 1
+          if (!createdStateRecord.usedAt) {
+            createdStateRecord.usedAt = query.data.usedAt;
+            return { count: 1 };
+          }
+          return { count: 0 };
+        },
+        findUnique: async () => createdStateRecord
+      },
+      auditLog: {
+        create: async () => {}
+      }
+    } as any;
+
+    const rawState = `shopee_state_concurrent_hex_999999`;
+
+    const results = await Promise.allSettled([
+      ShopeeAuthService.validateAndConsumeState(mockPrisma, rawState),
+      ShopeeAuthService.validateAndConsumeState(mockPrisma, rawState)
+    ]);
+
+    const fulfilled = results.filter(r => r.status === 'fulfilled');
+    const rejected = results.filter(r => r.status === 'rejected');
+
+    assert.strictEqual(fulfilled.length, 1);
+    assert.strictEqual(rejected.length, 1);
+
+    const rejectedError = (rejected[0] as PromiseRejectedResult).reason;
+    assert.strictEqual(rejectedError.code, 'OAUTH_STATE_ALREADY_USED');
   });
 });
