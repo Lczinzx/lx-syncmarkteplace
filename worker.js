@@ -1,10 +1,14 @@
 export default {
   async fetch(request, env) {
-    if (env && env.ASSETS && typeof env.ASSETS.fetch === 'function') {
-      return env.ASSETS.fetch(request);
+    if (!env?.ASSETS?.fetch) {
+      return new Response("ASSETS binding unavailable", {
+        status: 500,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8"
+        }
+      });
     }
-    return new Response('<!DOCTYPE html><html><head><title>LX Sync Marketplace</title></head><body><h1>LX Sync Marketplace</h1><p>Worker Ativo. Carregando a aplicação...</p></body></html>', {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' }
-    });
+
+    return env.ASSETS.fetch(request);
   }
 };
