@@ -95,6 +95,8 @@ model MarketplaceAccount {
   accessTokenEncrypted  String
   refreshTokenEncrypted String?
   tokenExpiresAt        DateTime?
+  environment           String?              @default("sandbox")
+  lastAuthorizedAt      DateTime?
   scopesJson            String?
   connectionMetadataJson String?
   lastSyncAt            DateTime?
@@ -112,6 +114,26 @@ model MarketplaceAccount {
   @@index([sellerId])
   @@index([shopId])
   @@map("marketplace_accounts")
+}
+
+model MarketplaceOAuthState {
+  id              String       @id @default(uuid())
+  provider        String       @default("shopee")
+  stateHash       String       @unique
+  organizationId  String
+  userId          String
+  returnUrl       String?
+  createdAt       DateTime     @default(now())
+  expiresAt       DateTime
+  usedAt          DateTime?
+  invalidatedAt   DateTime?
+  metadataJson    String?
+
+  @@index([stateHash])
+  @@index([expiresAt])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("marketplace_oauth_states")
 }
 
 model MarketplaceListing {

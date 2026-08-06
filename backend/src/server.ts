@@ -403,9 +403,9 @@ app.put('/api/marketplace-accounts/:id', authenticateToken, async (req: Authenti
    ROTAS DE AUTORIZAÇÃO E OAUTH SHOPEE REAL (FASE 4.1)
    ========================================================================== */
 
-app.get('/api/marketplaces/shopee/authorize', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+app.get('/api/marketplaces/shopee/authorize', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const authUrl = ShopeeAuthService.generateAuthorizeUrl(req.user!.organizationId, req.user!.userId);
+    const authUrl = await ShopeeAuthService.generateAuthorizeUrl(prisma, req.user!.organizationId, req.user!.userId);
     return res.json({ success: true, authUrl });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -423,19 +423,21 @@ app.get('/api/marketplaces/shopee/callback', async (req: Request, res: Response)
       return res.status(400).send('<h1>Erro 400: Parâmetros OAuth Shopee inválidos ou ausentes.</h1>');
     }
 
-    const statePayload = ShopeeAuthService.validateState(state);
-    if (!statePayload) {
-      return res.status(400).send('<h1>Erro 400: State de autorização expirado ou inválido (CSRF Protection).</h1>');
-    }
-
+    const statePayload = await ShopeeAuthService.validateAndConsumeState(prisma, state);
     const account = await ShopeeAuthService.handleCallback(prisma, code, shopId, statePayload);
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://lx-syncmarketplace.lczinz.workers.dev';
     return res.redirect(`${frontendUrl}?shopee_connected=true&account_id=${account.id}`);
-  } catch (err: unknown) {
+  } catch (err: any) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[SHOPEE-CALLBACK-ERROR]', message);
-    return res.status(500).send(`<h1>Erro 500 ao autorizar loja Shopee: ${message}</h1>`);
+    if (err?.code === 'OAUTH_STATE_ALREADY_USED') {
+      return res.status(400).send('<h1>Erro 400: State de autorização já utilizado anteriormente (Replay Attack bloqueado).</h1>');
+    }
+    if (err?.code === 'OAUTH_STATE_EXPIRED') {
+      return res.status(400).send('<h1>Erro 400: State de autorização expirado (expiração de 10 minutos).</h1>');
+    }
+    return res.status(400).send(`<h1>Erro 400 ao autorizar loja Shopee: ${message}</h1>`);
   }
 });
 

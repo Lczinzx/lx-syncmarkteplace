@@ -119,6 +119,42 @@ export class ShopeeApiClient {
   }
 
   /**
+   * Valida estritamente a configuração das variáveis de ambiente no boot do servidor
+   */
+  public static validateEnvironmentConfig(): { valid: boolean; environment: 'sandbox' | 'production'; partnerId: number; redirectUrl: string } {
+    const env = process.env.SHOPEE_ENVIRONMENT?.trim().toLowerCase();
+    if (env !== 'sandbox' && env !== 'production') {
+      throw new Error('SHOPEE_ENVIRONMENT inválido ou ausente. Deve ser estritamente "sandbox" ou "production".');
+    }
+
+    const partnerId = Number(process.env.SHOPEE_PARTNER_ID);
+    if (!partnerId || isNaN(partnerId)) {
+      throw new Error('SHOPEE_PARTNER_ID inválido ou ausente. Deve ser um número de ID parceiro numérico válido.');
+    }
+
+    const partnerKey = process.env.SHOPEE_PARTNER_KEY?.trim();
+    if (!partnerKey) {
+      throw new Error('SHOPEE_PARTNER_KEY ausente.');
+    }
+
+    const redirectUrl = process.env.SHOPEE_REDIRECT_URL?.trim();
+    if (!redirectUrl) {
+      throw new Error('SHOPEE_REDIRECT_URL ausente.');
+    }
+
+    if (env === 'production' && !redirectUrl.startsWith('https://')) {
+      throw new Error('SHOPEE_REDIRECT_URL em ambiente de produção deve ser obrigatoriamente HTTPS.');
+    }
+
+    const writesEnabled = process.env.ENABLE_REAL_MARKETPLACE_WRITES;
+    if (writesEnabled !== 'false') {
+      throw new Error('ENABLE_REAL_MARKETPLACE_WRITES deve ser estritamente "false" nesta fase.');
+    }
+
+    return { valid: true, environment: env, partnerId, redirectUrl };
+  }
+
+  /**
    * Algoritmo Oficial de Assinatura HMAC-SHA256 da Shopee Open API v2
    */
   public generateSign(path: string, timestamp: number, accessToken?: string, shopId?: number): string {

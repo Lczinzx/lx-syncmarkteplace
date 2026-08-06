@@ -23,6 +23,8 @@ export interface MarketplaceAccountView {
   externalAccountId: string | null;
   status: string;
   isDemo: boolean;
+  environment: string | null;
+  lastAuthorizedAt: string | null;
   lastSyncAt: string | null;
   lastImportAt: string | null;
   createdAt: string;
@@ -39,6 +41,8 @@ export function toAccountView(acc: MarketplaceAccount): MarketplaceAccountView {
     externalAccountId: acc.externalAccountId,
     status: acc.status,
     isDemo: acc.isDemo,
+    environment: acc.environment || 'sandbox',
+    lastAuthorizedAt: acc.lastAuthorizedAt ? acc.lastAuthorizedAt.toISOString() : null,
     lastSyncAt: acc.lastSyncAt ? acc.lastSyncAt.toISOString() : null,
     lastImportAt: acc.lastImportAt ? acc.lastImportAt.toISOString() : null,
     createdAt: acc.createdAt.toISOString()

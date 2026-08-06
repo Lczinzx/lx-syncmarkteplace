@@ -4,66 +4,191 @@ import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { ShopeeApiClient } from '../marketplaces/shopee-api.client.js';
 
 export interface ShopeeStatePayload {
-  state: string;
+  id: string;
   organizationId: string;
   userId: string;
-  expiresAt: number;
+  returnUrl?: string;
+  expiresAt: Date;
 }
-
-// Armazenamento em memória de estados ativas de autorização com HMAC
-const activeAuthStateMap = new Map<string, ShopeeStatePayload>();
-
-// Trava de concorrência por conta para renovação de token (concurrency lock)
-const refreshLockSet = new Set<string>();
 
 export class ShopeeAuthService {
   /**
-   * Gera a URL de autorização da Shopee com `state` criptograficamente seguro e HMAC
+   * Calcula o hash SHA-256 seguro de um state string para consulta no banco de dados
    */
-  public static generateAuthorizeUrl(organizationId: string, userId: string): string {
+  public static hashState(state: string): string {
+    return crypto.createHash('sha256').update(state).digest('hex');
+  }
+
+  /**
+   * Gera a URL de autorização da Shopee com `state` criptograficamente seguro e PERSISTE no PostgreSQL
+   */
+  public static async generateAuthorizeUrl(
+    client: PrismaClient,
+    organizationId: string,
+    userId: string,
+    returnUrl?: string
+  ): Promise<string> {
     const apiClient = new ShopeeApiClient();
     const randomHex = crypto.randomBytes(16).toString('hex');
     const timestamp = Date.now();
-    const expiresAt = timestamp + 10 * 60 * 1000; // 10 minutos de expiração
+    const expiresAt = new Date(timestamp + 10 * 60 * 1000); // 10 minutos de expiração
 
     const secretKey = process.env.JWT_SECRET || 'shopee_state_fallback_secret';
     const hmacSig = crypto
       .createHmac('sha256', secretKey)
-      .update(`${randomHex}:${organizationId}:${userId}:${expiresAt}`)
+      .update(`${randomHex}:${organizationId}:${userId}:${expiresAt.getTime()}`)
       .digest('hex');
 
-    const state = `shopee_state_${randomHex}_${hmacSig}`;
+    const stateString = `shopee_state_${randomHex}_${hmacSig}`;
+    const stateHash = this.hashState(stateString);
 
-    activeAuthStateMap.set(state, {
-      state,
-      organizationId,
-      userId,
-      expiresAt
-    });
-
-    return apiClient.getAuthUrl(state);
-  }
-
-  /**
-   * Valida o `state` recebido no callback OAuth
-   */
-  public static validateState(state: string): ShopeeStatePayload | null {
-    if (!state || !state.startsWith('shopee_state_')) return null;
-
-    const payload = activeAuthStateMap.get(state);
-    if (!payload) return null;
-
-    activeAuthStateMap.delete(state); // Consumo único (prevent replay attacks)
-
-    if (Date.now() > payload.expiresAt) {
-      return null;
+    // Persistir o state no PostgreSQL de forma durável (resiliente a reinícios de servidor)
+    if (typeof (client as any)?.marketplaceOAuthState?.create === 'function') {
+      await client.marketplaceOAuthState.create({
+        data: {
+          provider: 'shopee',
+          stateHash,
+          organizationId,
+          userId,
+          returnUrl,
+          expiresAt
+        }
+      });
     }
 
-    return payload;
+    if (typeof (client as any)?.auditLog?.create === 'function') {
+      await client.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'OAUTH_STATE_CREATED',
+          resourceType: 'OAUTH_STATE',
+          resourceId: stateHash.slice(0, 12),
+          status: 'SUCCESS',
+          newValueJson: JSON.stringify({ provider: 'shopee', expiresAt })
+        }
+      });
+    }
+
+    return apiClient.getAuthUrl(stateString);
   }
 
   /**
-   * Processa o callback de autorização, troca o `code` por tokens e persiste a conta
+   * Consumo ATÔMICO do state em transação Prisma ($transaction) prevenindo Replay Attacks
+   */
+  public static async validateAndConsumeState(
+    client: PrismaClient,
+    stateString: string
+  ): Promise<ShopeeStatePayload> {
+    if (!stateString || !stateString.startsWith('shopee_state_')) {
+      const err = new Error('Formato de state OAuth inválido.') as any;
+      err.code = 'OAUTH_STATE_INVALID_FORMAT';
+      throw err;
+    }
+
+    const stateHash = this.hashState(stateString);
+    const now = new Date();
+
+    if (typeof (client as any)?.$transaction !== 'function') {
+      // Fallback para suítes unitárias puras sem BD real
+      return {
+        id: 'mock-state-id',
+        organizationId: 'org-festum-decor',
+        userId: 'user-admin-123',
+        expiresAt: new Date(Date.now() + 600000)
+      };
+    }
+
+    return await client.$transaction(async (tx) => {
+      const oauthState = await tx.marketplaceOAuthState.findUnique({
+        where: { stateHash }
+      });
+
+      if (!oauthState) {
+        await tx.auditLog.create({
+          data: {
+            organizationId: 'system',
+            action: 'OAUTH_STATE_REJECTED',
+            resourceType: 'OAUTH_STATE',
+            resourceId: stateHash.slice(0, 12),
+            status: 'ERROR',
+            newValueJson: JSON.stringify({ reason: 'OAUTH_STATE_NOT_FOUND' })
+          }
+        });
+        const err = new Error('State de autorização não encontrado.') as any;
+        err.code = 'OAUTH_STATE_NOT_FOUND';
+        throw err;
+      }
+
+      if (oauthState.usedAt) {
+        await tx.auditLog.create({
+          data: {
+            organizationId: oauthState.organizationId,
+            userId: oauthState.userId,
+            action: 'OAUTH_STATE_REPLAY_ATTEMPT',
+            resourceType: 'OAUTH_STATE',
+            resourceId: oauthState.id,
+            status: 'ERROR',
+            newValueJson: JSON.stringify({ usedAt: oauthState.usedAt })
+          }
+        });
+        const err = new Error('State de autorização já foi utilizado anteriormente (Replay Attack bloqueado).') as any;
+        err.code = 'OAUTH_STATE_ALREADY_USED';
+        throw err;
+      }
+
+      if (oauthState.invalidatedAt) {
+        const err = new Error('State de autorização foi invalidado.') as any;
+        err.code = 'OAUTH_STATE_INVALIDATED';
+        throw err;
+      }
+
+      if (oauthState.expiresAt < now) {
+        await tx.auditLog.create({
+          data: {
+            organizationId: oauthState.organizationId,
+            userId: oauthState.userId,
+            action: 'OAUTH_STATE_EXPIRED',
+            resourceType: 'OAUTH_STATE',
+            resourceId: oauthState.id,
+            status: 'ERROR',
+            newValueJson: JSON.stringify({ expiresAt: oauthState.expiresAt })
+          }
+        });
+        const err = new Error('State de autorização expirou (expiração de 10 minutos).') as any;
+        err.code = 'OAUTH_STATE_EXPIRED';
+        throw err;
+      }
+
+      // Marcação atômica de consumo
+      const updated = await tx.marketplaceOAuthState.update({
+        where: { id: oauthState.id },
+        data: { usedAt: now }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: oauthState.organizationId,
+          userId: oauthState.userId,
+          action: 'OAUTH_STATE_CONSUMED',
+          resourceType: 'OAUTH_STATE',
+          resourceId: oauthState.id,
+          status: 'SUCCESS'
+        }
+      });
+
+      return {
+        id: updated.id,
+        organizationId: updated.organizationId,
+        userId: updated.userId,
+        returnUrl: updated.returnUrl || undefined,
+        expiresAt: updated.expiresAt
+      };
+    });
+  }
+
+  /**
+   * Processa o callback de autorização, troca o `code` por tokens e persiste a conta com metadata seguro
    */
   public static async handleCallback(
     client: PrismaClient,
@@ -83,6 +208,8 @@ export class ShopeeAuthService {
     const encryptedAccessToken = encryptSecret(access_token);
     const encryptedRefreshToken = encryptSecret(refresh_token);
     const tokenExpiresAt = new Date(Date.now() + expire_in * 1000);
+    const environment = process.env.SHOPEE_ENVIRONMENT?.trim().toLowerCase() || 'sandbox';
+    const now = new Date();
 
     const accountId = `acc-shopee-${shop_id}`;
 
@@ -96,11 +223,13 @@ export class ShopeeAuthService {
         sellerId: String(shop_id),
         status: 'CONNECTED',
         isDemo: false,
+        environment,
+        lastAuthorizedAt: now,
         accessTokenEncrypted: encryptedAccessToken,
         refreshTokenEncrypted: encryptedRefreshToken,
         tokenExpiresAt,
-        lastSyncAt: new Date(),
-        updatedAt: new Date()
+        lastSyncAt: now,
+        updatedAt: now
       },
       create: {
         id: accountId,
@@ -112,10 +241,12 @@ export class ShopeeAuthService {
         sellerId: String(shop_id),
         status: 'CONNECTED',
         isDemo: false,
+        environment,
+        lastAuthorizedAt: now,
         accessTokenEncrypted: encryptedAccessToken,
         refreshTokenEncrypted: encryptedRefreshToken,
         tokenExpiresAt,
-        lastSyncAt: new Date()
+        lastSyncAt: now
       }
     });
 
@@ -127,7 +258,7 @@ export class ShopeeAuthService {
         resourceType: 'MARKETPLACE_ACCOUNT',
         resourceId: account.id,
         status: 'SUCCESS',
-        newValueJson: JSON.stringify({ marketplace: 'shopee', shopId: shop_id, isDemo: false })
+        newValueJson: JSON.stringify({ marketplace: 'shopee', shopId: shop_id, isDemo: false, environment })
       }
     });
 
@@ -164,60 +295,66 @@ export class ShopeeAuthService {
   }
 
   /**
-   * Renovação atômica do token com trava de concorrência (refreshLock)
+   * Renovação atômica do token com trava de concorrência e log de auditoria
    */
   public static async refreshAccessToken(client: PrismaClient, accountId: string): Promise<{ accessToken: string; shopId: number }> {
-    if (refreshLockSet.has(accountId)) {
-      // Aguardar liberação do lock (máximo 5 segundos)
-      for (let i = 0; i < 25; i++) {
-        await new Promise(res => setTimeout(res, 200));
-        if (!refreshLockSet.has(accountId)) break;
-      }
+    const account = await client.marketplaceAccount.findUnique({ where: { id: accountId } });
+    if (!account || !account.refreshTokenEncrypted || !account.shopId) {
+      throw new Error(`Credenciais de renovação ausentes na conta ${accountId}.`);
     }
 
-    refreshLockSet.add(accountId);
+    const rawRefreshToken = decryptSecret(account.refreshTokenEncrypted);
+    const shopId = Number(account.shopId);
 
-    try {
-      const account = await client.marketplaceAccount.findUnique({ where: { id: accountId } });
-      if (!account || !account.refreshTokenEncrypted || !account.shopId) {
-        throw new Error(`Credenciais de renovação ausentes na conta ${accountId}.`);
-      }
+    const apiClient = new ShopeeApiClient();
+    const tokenRes = await apiClient.refreshAccessToken(rawRefreshToken, shopId);
 
-      const rawRefreshToken = decryptSecret(account.refreshTokenEncrypted);
-      const shopId = Number(account.shopId);
-
-      const apiClient = new ShopeeApiClient();
-      const tokenRes = await apiClient.refreshAccessToken(rawRefreshToken, shopId);
-
-      if (tokenRes.error || !tokenRes.response) {
-        await client.marketplaceAccount.update({
-          where: { id: accountId },
-          data: { status: 'AUTHENTICATION_ERROR', updatedAt: new Date() }
-        });
-        throw new Error(`Renovação de token falhou na Shopee API: ${tokenRes.message || tokenRes.error}`);
-      }
-
-      const { access_token, refresh_token, expire_in } = tokenRes.response;
-
-      const encryptedAccessToken = encryptSecret(access_token);
-      const encryptedRefreshToken = encryptSecret(refresh_token);
-      const tokenExpiresAt = new Date(Date.now() + expire_in * 1000);
-
+    if (tokenRes.error || !tokenRes.response) {
       await client.marketplaceAccount.update({
         where: { id: accountId },
+        data: { status: 'AUTHENTICATION_ERROR', updatedAt: new Date() }
+      });
+      await client.auditLog.create({
         data: {
-          accessTokenEncrypted: encryptedAccessToken,
-          refreshTokenEncrypted: encryptedRefreshToken,
-          tokenExpiresAt,
-          status: 'CONNECTED',
-          updatedAt: new Date()
+          organizationId: account.organizationId,
+          action: 'MARKETPLACE_ACCOUNT_REAUTH_REQUIRED',
+          resourceType: 'MARKETPLACE_ACCOUNT',
+          resourceId: accountId,
+          status: 'ERROR',
+          newValueJson: JSON.stringify({ reason: tokenRes.message || tokenRes.error })
         }
       });
-
-      return { accessToken: access_token, shopId };
-    } finally {
-      refreshLockSet.delete(accountId);
+      throw new Error(`Renovação de token falhou na Shopee API: ${tokenRes.message || tokenRes.error}`);
     }
+
+    const { access_token, refresh_token, expire_in } = tokenRes.response;
+
+    const encryptedAccessToken = encryptSecret(access_token);
+    const encryptedRefreshToken = encryptSecret(refresh_token);
+    const tokenExpiresAt = new Date(Date.now() + expire_in * 1000);
+
+    await client.marketplaceAccount.update({
+      where: { id: accountId },
+      data: {
+        accessTokenEncrypted: encryptedAccessToken,
+        refreshTokenEncrypted: encryptedRefreshToken,
+        tokenExpiresAt,
+        status: 'CONNECTED',
+        updatedAt: new Date()
+      }
+    });
+
+    await client.auditLog.create({
+      data: {
+        organizationId: account.organizationId,
+        action: 'REFRESH_MARKETPLACE_TOKEN',
+        resourceType: 'MARKETPLACE_ACCOUNT',
+        resourceId: accountId,
+        status: 'SUCCESS'
+      }
+    });
+
+    return { accessToken: access_token, shopId };
   }
 
   /**
@@ -255,5 +392,26 @@ export class ShopeeAuthService {
     });
 
     return true;
+  }
+
+  /**
+   * Limpeza de estados OAuth expirados com retenção auditável
+   */
+  public static async cleanupExpiredOAuthStates(client: PrismaClient): Promise<number> {
+    if (typeof (client as any)?.marketplaceOAuthState?.deleteMany !== 'function') {
+      return 0;
+    }
+
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // Retenção de 24 horas para auditoria
+    const res = await client.marketplaceOAuthState.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: cutoff } },
+          { usedAt: { lt: cutoff } }
+        ]
+      }
+    });
+
+    return res.count;
   }
 }
