@@ -31,6 +31,7 @@ import { GroupsService } from './services/groups.service.js';
 import { MarketplaceRulesService } from './services/marketplace-rules.service.js';
 import { ImageStorageService } from './services/image-storage.service.js';
 import { ShopeeAuthService } from './services/shopee-auth.service.js';
+import { SyncEngineService, SyncAlreadyRunningError } from './services/sync-engine.service.js';
 
 dotenv.config();
 
@@ -324,6 +325,104 @@ app.get('/api/marketplace-accounts', authenticateToken, async (req: Authenticate
         message: toFriendlyDbErrorMessage(err, 'Não foi possível carregar as contas do servidor.')
       }
     });
+  }
+});
+
+/* ==========================================================================
+   ROTAS DE SINCRONIZAÇÃO DA CONTA (FASE 4.2)
+   ========================================================================== */
+
+app.post('/api/marketplace-accounts/:accountId/sync', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accountId = req.params.accountId;
+    const organizationId = req.user!.organizationId;
+
+    const account = await findAccountByOrg(prisma, organizationId, accountId);
+    if (!account) {
+      return res.status(404).json({ error: { code: 'MARKETPLACE_ACCOUNT_NOT_FOUND', message: 'Conta de marketplace não encontrada.' } });
+    }
+
+    const syncType = req.body?.syncType === 'FULL' ? 'FULL' : 'INCREMENTAL';
+
+    let adapter: any;
+    if (account.isDemo) {
+      adapter = new FakeMarketplaceAdapter(account.marketplace, account.id);
+    } else {
+      adapter = new FakeMarketplaceAdapter(account.marketplace, account.id);
+    }
+
+    const result = await SyncEngineService.executeSync(prisma, {
+      organizationId,
+      marketplaceAccountId: account.id,
+      syncType,
+      initiatedByUserId: req.user!.userId,
+      adapter
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        organizationId,
+        userId: req.user!.userId,
+        action: 'SYNC_MARKETPLACE_ACCOUNT',
+        resourceType: 'MARKETPLACE_ACCOUNT',
+        resourceId: account.id,
+        marketplace: account.marketplace,
+        marketplaceAccountId: account.id,
+        newValueJson: JSON.stringify(result)
+      }
+    });
+
+    return res.json({ success: true, syncRun: result });
+  } catch (err: unknown) {
+    if ((err as any)?.code === 'SYNC_ALREADY_RUNNING') {
+      return res.status(409).json({
+        error: {
+          code: 'SYNC_ALREADY_RUNNING',
+          message: 'Sincronização já está em execução para esta conta.',
+          syncRunId: (err as any).syncRunId,
+          isRetryable: false
+        }
+      });
+    }
+
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[SYNC] Erro na sincronização da conta ${req.params.accountId}: ${message}`);
+    return res.status(500).json({ error: { code: 'SYNC_FAILED', message } });
+  }
+});
+
+app.get('/api/marketplace-accounts/:accountId/sync-runs', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accountId = req.params.accountId;
+    const organizationId = req.user!.organizationId;
+
+    const account = await findAccountByOrg(prisma, organizationId, accountId);
+    if (!account) {
+      return res.status(404).json({ error: { code: 'MARKETPLACE_ACCOUNT_NOT_FOUND', message: 'Conta não encontrada.' } });
+    }
+
+    const syncRuns = await SyncEngineService.listSyncRuns(prisma, organizationId, accountId);
+    return res.json({ success: true, syncRuns });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: { code: 'SYNC_RUNS_FETCH_FAILED', message } });
+  }
+});
+
+app.get('/api/marketplace-accounts/:accountId/sync-runs/:syncRunId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const organizationId = req.user!.organizationId;
+    const syncRunId = req.params.syncRunId;
+
+    const syncRun = await SyncEngineService.getSyncRun(prisma, organizationId, syncRunId);
+    if (!syncRun) {
+      return res.status(404).json({ error: { code: 'SYNC_RUN_NOT_FOUND', message: 'Execução de sincronização não encontrada.' } });
+    }
+
+    return res.json({ success: true, syncRun });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: { code: 'SYNC_RUN_FETCH_FAILED', message } });
   }
 });
 

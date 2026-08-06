@@ -101,11 +101,14 @@ model MarketplaceAccount {
   connectionMetadataJson String?
   lastSyncAt            DateTime?
   lastImportAt          DateTime?
+  lastSuccessfulSyncAt  DateTime?
+  lastSyncAttemptAt     DateTime?
   organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listings              MarketplaceListing[]
   mappings              ProductMapping[]
   jobItems              SkuChangeJobItem[]
   importJobs            ImportJob[]
+  syncRuns              MarketplaceSyncRun[]
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
@@ -114,6 +117,58 @@ model MarketplaceAccount {
   @@index([sellerId])
   @@index([shopId])
   @@map("marketplace_accounts")
+}
+
+enum SyncType {
+  FULL
+  INCREMENTAL
+}
+
+enum SyncRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  PARTIAL_FAILURE
+  FAILED
+  CANCELLED
+}
+
+model MarketplaceSyncRun {
+  id                        String             @id @default(uuid())
+  organizationId            String
+  marketplaceAccountId      String
+  marketplace               String
+  syncType                  SyncType           @default(INCREMENTAL)
+  status                    SyncRunStatus      @default(PENDING)
+  startedAt                 DateTime           @default(now())
+  completedAt               DateTime?
+  failedAt                  DateTime?
+  durationMs                Int?
+  currentStage              String?
+  currentCursor             String?
+  pagesProcessed            Int                @default(0)
+  listingsFound             Int                @default(0)
+  listingsCreated           Int                @default(0)
+  listingsUpdated           Int                @default(0)
+  listingsUnchanged         Int                @default(0)
+  listingsMissingRemotely   Int                @default(0)
+  variationsCreated         Int                @default(0)
+  variationsUpdated         Int                @default(0)
+  variationsUnchanged       Int                @default(0)
+  imagesCreated             Int                @default(0)
+  imagesUpdated             Int                @default(0)
+  errorsCount               Int                @default(0)
+  errorSummaryJson          String?
+  initiatedByUserId         String?
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+  account                   MarketplaceAccount @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([marketplaceAccountId])
+  @@index([status])
+  @@index([startedAt])
+  @@map("marketplace_sync_runs")
 }
 
 model MarketplaceOAuthState {
@@ -150,6 +205,9 @@ model MarketplaceListing {
   status                String               @default("ACTIVE") // ACTIVE, PAUSED, CLOSED
   listingUrl            String?
   rawDataJson           String?
+  firstMissingAt        DateTime?
+  lastMissingAt         DateTime?
+  missingSyncCount      Int                  @default(0)
   importedAt            DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   account               MarketplaceAccount   @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
@@ -207,6 +265,9 @@ model MarketplaceVariation {
   stock                 Int
   status                String               @default("ACTIVE")
   rawDataJson           String?
+  firstMissingAt        DateTime?
+  lastMissingAt         DateTime?
+  missingSyncCount      Int                  @default(0)
   importedAt            DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   listing               MarketplaceListing   @relation(fields: [marketplaceListingId], references: [id], onDelete: Cascade)

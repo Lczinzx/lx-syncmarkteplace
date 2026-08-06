@@ -146,6 +146,8 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
       connectionMetadataJson: null,
       lastSyncAt: new Date(),
       lastImportAt: null,
+      lastSuccessfulSyncAt: null,
+      lastSyncAttemptAt: null,
       createdAt: new Date(),
       updatedAt: new Date()
     };

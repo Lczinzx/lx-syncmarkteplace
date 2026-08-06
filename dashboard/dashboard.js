@@ -284,7 +284,7 @@ function renderAccountsGrid() {
             <span style="font-size:11px; color:var(--text-muted);">Sync: ${formatTime(acc.lastSync)}</span>
           </div>
           <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary btn-sm btn-test-acc" data-id="${acc.id}" style="flex:1;">Testar Conexão</button>
+            <button class="btn btn-secondary btn-sm btn-sync-acc" data-id="${acc.id}" style="flex:1;">Atualizar dados da Shopee</button>
             <button class="btn btn-secondary btn-sm btn-edit-acc" data-id="${acc.id}">Editar</button>
             <button class="btn btn-danger-outline btn-sm btn-delete-acc" data-id="${acc.id}">Excluir</button>
           </div>
@@ -293,10 +293,37 @@ function renderAccountsGrid() {
     `;
   }).join('');
 
-  container.querySelectorAll('.btn-test-acc').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const acc = currentAccounts.find(a => a.id === btn.dataset.id);
-      alert(`✅ Conexão com ${acc ? (acc.sellerName || acc.name) : 'conta'} testada com sucesso! Status: Ativo.`);
+  container.querySelectorAll('.btn-sync-acc').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const accId = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = '⏳ Sincronizando...';
+      try {
+        const token = localStorage.getItem('lx_token') || localStorage.getItem('jwt_session_token') || '';
+        const apiBase = window.location.origin.includes('localhost') ? 'http://localhost:3000' : 'https://lx-sync-api.onrender.com';
+        const res = await fetch(`${apiBase}/api/marketplace-accounts/${accId}/sync`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ syncType: 'INCREMENTAL' })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(`✅ Sincronização concluída!\nAnúncios encontrados: ${data.syncRun.listingsFound}\nInalterados: ${data.syncRun.listingsUnchanged}\nCriados: ${data.syncRun.listingsCreated}\nAtualizados: ${data.syncRun.listingsUpdated}`);
+          await refreshData();
+        } else if (res.status === 409 && data.error?.code === 'SYNC_ALREADY_RUNNING') {
+          alert('⚠️ Sincronização já está em andamento para esta conta.');
+        } else {
+          alert(`❌ Falha na sincronização: ${data.error?.message || 'Erro no servidor'}`);
+        }
+      } catch (err) {
+        alert(`❌ Erro na sincronização: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Atualizar dados da Shopee';
+      }
     });
   });
 
