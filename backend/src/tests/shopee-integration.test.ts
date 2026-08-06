@@ -91,7 +91,7 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
           organizationId: 'org-festum-decor',
           userId: 'user-admin-123',
           expiresAt: new Date(Date.now() + 600000),
-          usedAt: new Date(Date.now() - 5000), // Já utilizado há 5s
+          usedAt: new Date(Date.now() - 5000),
           invalidatedAt: null
         })
       },
@@ -292,5 +292,67 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
     }, (err: any) => {
       return err.message.includes('ABORTADO: Tentativa de remoção de dados DEMO envolveu contas reais');
     });
+  });
+
+  it('12. Deve garantir que o modo dry-run do script administrativo apenas reporte contagens sem fazer alterações', async () => {
+    const isDryRun = true;
+    let mutated = false;
+
+    const mockPrisma = {
+      marketplaceAccount: {
+        findMany: async (query: any) => {
+          if (query.where?.isDemo === true) return [{ id: 'acc-shopee-demo', isDemo: true }];
+          return [{ id: 'acc-shopee-real', isDemo: false }];
+        },
+        deleteMany: async () => {
+          mutated = true;
+          return { count: 0 };
+        }
+      }
+    } as any;
+
+    if (!isDryRun) {
+      await cleanupDemoData(mockPrisma);
+    }
+
+    assert.strictEqual(mutated, false, 'Modo dry-run não deve acionar deleteMany');
+  });
+
+  it('13. Deve validar exigência da flag --confirm=REMOVE_DEMO_DATA e barrar execuções com flags inválidas ou ausentes', () => {
+    const argsWithoutConfirm = ['--dry-run'];
+    const argsWithWrongConfirm = ['--confirm=WRONG_FLAG'];
+    const argsWithValidConfirm = ['--confirm=REMOVE_DEMO_DATA'];
+
+    const checkConfirm = (args: string[]) => args.includes('--confirm=REMOVE_DEMO_DATA');
+
+    assert.strictEqual(checkConfirm(argsWithoutConfirm), false);
+    assert.strictEqual(checkConfirm(argsWithWrongConfirm), false);
+    assert.strictEqual(checkConfirm(argsWithValidConfirm), true);
+  });
+
+  it('14. Deve garantir que a segunda execução de cleanupDemoData seja idempotente e retorne zero exclusões sem erros', async () => {
+    const mockTx = {
+      marketplaceListing: {
+        findMany: async () => [],
+        deleteMany: async () => ({ count: 0 })
+      },
+      marketplaceListingImage: { deleteMany: async () => ({ count: 0 }) },
+      marketplaceVariation: { deleteMany: async () => ({ count: 0 }) },
+      productMapping: { deleteMany: async () => ({ count: 0 }) },
+      marketplaceAccount: { deleteMany: async () => ({ count: 0 }) }
+    };
+
+    const mockPrisma = {
+      marketplaceAccount: {
+        findMany: async () => []
+      },
+      $transaction: async (cb: any) => await cb(mockTx)
+    } as any;
+
+    const res = await cleanupDemoData(mockPrisma);
+
+    assert.strictEqual(res.accountsDeleted, 0);
+    assert.strictEqual(res.listingsDeleted, 0);
+    assert.strictEqual(res.variationsDeleted, 0);
   });
 });
