@@ -1305,12 +1305,12 @@ app.get('/api/admin/cleanup-demo/dry-run', authenticateToken, async (req: Authen
 
 app.post('/api/admin/cleanup-demo', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (!isAdminEmail(req.user?.email || '')) {
-      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Acesso restrito a administradores do sistema.' } });
+    if (process.env.ALLOW_DEMO_CLEANUP !== 'true') {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Endpoint indisponível.' } });
     }
 
-    if (process.env.ALLOW_DEMO_CLEANUP !== 'true') {
-      return res.status(400).json({ error: { code: 'CLEANUP_NOT_ALLOWED', message: 'Variável ALLOW_DEMO_CLEANUP não está definida como "true" no ambiente.' } });
+    if (!isAdminEmail(req.user?.email || '')) {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Acesso restrito a administradores do sistema.' } });
     }
 
     if (req.body?.confirm !== 'REMOVE_DEMO_DATA') {
@@ -1318,6 +1318,22 @@ app.post('/api/admin/cleanup-demo', authenticateToken, async (req: Authenticated
     }
 
     const cleanupResult = await cleanupDemoData(prisma);
+
+    // Registro no AuditLog
+    await prisma.auditLog.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        userId: req.user!.userId,
+        action: 'ADMIN_DEMO_CLEANUP',
+        resourceType: 'MARKETPLACE_ACCOUNT',
+        resourceId: 'ALL_DEMO_ACCOUNTS',
+        newValueJson: JSON.stringify({
+          adminEmail: req.user!.email,
+          cleanupResult,
+          executedAt: new Date().toISOString()
+        })
+      }
+    });
 
     const remainingRealAccounts = await prisma.marketplaceAccount.findMany({
       where: { isDemo: false },
