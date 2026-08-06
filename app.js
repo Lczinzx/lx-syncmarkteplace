@@ -1459,8 +1459,9 @@ function renderAccountsGrid() {
               </h3>
               ${acc.isDemo === true 
                 ? '<span style="background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.4); color: #FBBF24; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">CONTA DE DEMONSTRAÇÃO</span>' 
-                : '<span style="background: rgba(16,185,129,0.18); border: 1px solid rgba(16,185,129,0.4); color: #10B981; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">🔒 CONTA REAL (SOMENTE LEITURA)</span>'}
-              ${acc.environment ? `<span style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #94A3B8; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">${escapeHtml(acc.environment.toUpperCase())}</span>` : ''}
+                : (acc.environment === 'production'
+                    ? '<span style="background: rgba(16,185,129,0.18); border: 1px solid rgba(16,185,129,0.4); color: #10B981; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">🔒 CONTA REAL • SOMENTE LEITURA • PRODUCTION</span>'
+                    : '<span style="background: rgba(59,130,246,0.18); border: 1px solid rgba(59,130,246,0.4); color: #60A5FA; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">🧪 CONTA DE TESTE • SOMENTE LEITURA • SANDBOX</span>')}
             </div>
             <p style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin: 0;">
               ${escapeHtml(meta.name)} • ID / ShopID: <code class="code-tag">${escapeHtml(shopIdDisplay)}</code>
