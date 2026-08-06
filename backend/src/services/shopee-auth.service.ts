@@ -28,9 +28,11 @@ export class ShopeeAuthService {
     userId: string,
     returnUrl?: string,
     environment?: 'sandbox' | 'production'
-  ): Promise<string> {
+  ): Promise<{ authUrl: string; diagnostic: any }> {
     const targetEnv = environment || (process.env.SHOPEE_ENVIRONMENT?.trim().toLowerCase() as 'sandbox' | 'production') || 'sandbox';
     const apiClient = new ShopeeApiClient({ environment: targetEnv });
+    const diagnostic = apiClient.getDiagnosticInfo();
+
     const randomHex = crypto.randomBytes(16).toString('hex');
     const timestamp = Date.now();
     const expiresAt = new Date(timestamp + 10 * 60 * 1000); // 10 minutos de expiração
@@ -72,7 +74,8 @@ export class ShopeeAuthService {
       });
     }
 
-    return apiClient.getAuthUrl(stateString);
+    const authUrl = apiClient.getAuthUrl(stateString);
+    return { authUrl, diagnostic };
   }
 
   /**

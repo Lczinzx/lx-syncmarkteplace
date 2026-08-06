@@ -509,11 +509,29 @@ app.get('/api/marketplaces/shopee/authorize', authenticateToken, async (req: Aut
   try {
     const envParam = (req.query.environment as string)?.trim().toLowerCase();
     const targetEnv = envParam === 'production' ? 'production' : (envParam === 'sandbox' ? 'sandbox' : undefined);
-    const authUrl = await ShopeeAuthService.generateAuthorizeUrl(prisma, req.user!.organizationId, req.user!.userId, undefined, targetEnv);
-    return res.json({ success: true, authUrl });
+    const { authUrl, diagnostic } = await ShopeeAuthService.generateAuthorizeUrl(
+      prisma,
+      req.user!.organizationId,
+      req.user!.userId,
+      undefined,
+      targetEnv
+    );
+
+    return res.json({
+      success: true,
+      authUrl,
+      diagnostic
+    });
   } catch (err: unknown) {
+    const code = (err as any)?.code || 'SHOPEE_AUTH_ERROR';
     const message = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({ success: false, error: message });
+    console.error(`[SHOPEE-AUTHORIZE-ERROR] [${code}]: ${message}`);
+
+    return res.status(400).json({
+      success: false,
+      error: message,
+      code
+    });
   }
 });
 

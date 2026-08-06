@@ -35,13 +35,14 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
       }
     } as any;
 
-    const authUrl = await ShopeeAuthService.generateAuthorizeUrl(mockPrisma, 'org-festum-decor', 'user-admin-123');
+    const { authUrl, diagnostic } = await ShopeeAuthService.generateAuthorizeUrl(mockPrisma, 'org-festum-decor', 'user-admin-123');
 
     assert.ok(authUrl.includes('/api/v2/shop/auth_partner'));
     assert.ok(authUrl.includes(`partner_id=${samplePartnerId}`));
     assert.ok(authUrl.includes('timestamp='));
     assert.ok(authUrl.includes('sign='));
     assert.ok(authUrl.includes('state=shopee_state_'));
+    assert.strictEqual(diagnostic.environment, 'sandbox');
   });
 
   it('3. Deve validar consumo atômico de linha única (updateMany condicional) no banco de dados', async () => {
@@ -356,5 +357,37 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
     assert.strictEqual(res.accountsDeleted, 0);
     assert.strictEqual(res.listingsDeleted, 0);
     assert.strictEqual(res.variationsDeleted, 0);
+  });
+
+  it('15. Production nunca deve usar host sandbox e Sandbox nunca deve usar host production', () => {
+    const prodClient = new ShopeeApiClient({ partnerId: 2005884, partnerKey: 'key123', environment: 'production' });
+    assert.strictEqual(prodClient.getDiagnosticInfo().host, 'https://partner.shopeemobile.com');
+    assert.strictEqual(prodClient.getDiagnosticInfo().host.includes('test-stable'), false);
+
+    const sbClient = new ShopeeApiClient({ partnerId: 2005884, partnerKey: 'key123', environment: 'sandbox' });
+    assert.strictEqual(sbClient.getDiagnosticInfo().host, 'https://partner.test-stable.shopeemobile.com');
+    assert.strictEqual(sbClient.getDiagnosticInfo().host.includes('partner.shopeemobile.com'), false);
+  });
+
+  it('16. Partner ID ausente, zero ou não numérico deve ser estritamente rejeitado', () => {
+    assert.throws(() => {
+      new ShopeeApiClient({ partnerId: 0, partnerKey: 'key123', environment: 'production' });
+    }, (err: any) => err.code === 'SHOPEE_PARTNER_ID_INVALID');
+
+    assert.throws(() => {
+      new ShopeeApiClient({ partnerId: -5, partnerKey: 'key123', environment: 'production' });
+    }, (err: any) => err.code === 'SHOPEE_PARTNER_ID_INVALID');
+
+    assert.throws(() => {
+      new ShopeeApiClient({ partnerId: NaN, partnerKey: 'key123', environment: 'production' });
+    }, (err: any) => err.code === 'SHOPEE_PARTNER_ID_INVALID');
+  });
+
+  it('17. Partner ID válido aparece corretamente na URL de autorização de produção e sandbox', () => {
+    const prodClient = new ShopeeApiClient({ partnerId: 2005884, partnerKey: 'key123', environment: 'production' });
+    const authUrl = prodClient.getAuthUrl('test_state_123');
+    assert.ok(authUrl.startsWith('https://partner.shopeemobile.com/api/v2/shop/auth_partner'));
+    assert.ok(authUrl.includes('partner_id=2005884'));
+    assert.ok(!authUrl.includes('partner_id=0'));
   });
 });

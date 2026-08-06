@@ -105,17 +105,63 @@ export class ShopeeApiClient {
   private partnerKey: string;
   private baseUrl: string;
   private redirectUrl: string;
+  private environment: 'sandbox' | 'production';
 
   constructor(config?: Partial<ShopeeApiConfig>) {
-    this.partnerId = config?.partnerId || Number(process.env.SHOPEE_PARTNER_ID) || 0;
-    this.partnerKey = config?.partnerKey || process.env.SHOPEE_PARTNER_KEY || '';
-    const env = config?.environment || (process.env.SHOPEE_ENVIRONMENT as 'sandbox' | 'production') || 'sandbox';
-    
-    this.baseUrl = env === 'production'
+    const env = (config?.environment || process.env.SHOPEE_ENVIRONMENT || 'sandbox').trim().toLowerCase() as 'sandbox' | 'production';
+    this.environment = env === 'production' ? 'production' : 'sandbox';
+
+    if (config?.partnerId !== undefined) {
+      this.partnerId = Number(config.partnerId);
+    } else if (this.environment === 'production') {
+      const pIdRaw = process.env.SHOPEE_PRODUCTION_PARTNER_ID || process.env.SHOPEE_PARTNER_ID;
+      this.partnerId = Number(pIdRaw);
+    } else {
+      const pIdRaw = process.env.SHOPEE_SANDBOX_PARTNER_ID || process.env.SHOPEE_PARTNER_ID;
+      this.partnerId = Number(pIdRaw);
+    }
+
+    if (!this.partnerId || !Number.isSafeInteger(this.partnerId) || this.partnerId <= 0) {
+      const err = new Error(
+        `A integração Shopee ${this.environment === 'production' ? 'Production' : 'Sandbox'} não está configurada corretamente (Partner ID ausente ou inválido).`
+      ) as any;
+      err.code = 'SHOPEE_PARTNER_ID_INVALID';
+      err.isRetryable = false;
+      throw err;
+    }
+
+    if (config?.partnerKey !== undefined) {
+      this.partnerKey = String(config.partnerKey);
+    } else if (this.environment === 'production') {
+      this.partnerKey = process.env.SHOPEE_PRODUCTION_PARTNER_KEY || process.env.SHOPEE_PARTNER_KEY || '';
+    } else {
+      this.partnerKey = process.env.SHOPEE_SANDBOX_PARTNER_KEY || process.env.SHOPEE_PARTNER_KEY || '';
+    }
+
+    if (!this.partnerKey || String(this.partnerKey).trim() === '') {
+      const err = new Error(
+        `A integração Shopee ${this.environment === 'production' ? 'Production' : 'Sandbox'} não está configurada corretamente (Partner Key ausente).`
+      ) as any;
+      err.code = 'SHOPEE_PARTNER_KEY_INVALID';
+      err.isRetryable = false;
+      throw err;
+    }
+
+    this.baseUrl = this.environment === 'production'
       ? 'https://partner.shopeemobile.com'
       : 'https://partner.test-stable.shopeemobile.com';
 
     this.redirectUrl = config?.redirectUrl || process.env.SHOPEE_REDIRECT_URL || 'https://lx-sync-api.onrender.com/api/marketplaces/shopee/callback';
+  }
+
+  public getDiagnosticInfo() {
+    return {
+      environment: this.environment,
+      partnerIdConfigured: Boolean(this.partnerId && this.partnerId > 0),
+      partnerIdValid: Boolean(Number.isSafeInteger(this.partnerId) && this.partnerId > 0),
+      host: this.baseUrl,
+      redirectConfigured: Boolean(this.redirectUrl && this.redirectUrl.trim() !== '')
+    };
   }
 
   /**
@@ -127,8 +173,8 @@ export class ShopeeApiClient {
       throw new Error('SHOPEE_ENVIRONMENT inválido ou ausente. Deve ser estritamente "sandbox" ou "production".');
     }
 
-    const partnerId = Number(process.env.SHOPEE_PARTNER_ID);
-    if (!partnerId || isNaN(partnerId)) {
+    const partnerId = Number(process.env.SHOPEE_PARTNER_ID || process.env.SHOPEE_PRODUCTION_PARTNER_ID || process.env.SHOPEE_SANDBOX_PARTNER_ID);
+    if (!partnerId || !Number.isSafeInteger(partnerId) || partnerId <= 0) {
       throw new Error('SHOPEE_PARTNER_ID inválido ou ausente. Deve ser um número de ID parceiro numérico válido.');
     }
 
