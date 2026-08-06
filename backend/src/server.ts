@@ -32,6 +32,7 @@ import { MarketplaceRulesService } from './services/marketplace-rules.service.js
 import { ImageStorageService } from './services/image-storage.service.js';
 import { ShopeeAuthService } from './services/shopee-auth.service.js';
 import { SyncEngineService, SyncAlreadyRunningError } from './services/sync-engine.service.js';
+import { ShopeeMarketplaceAdapter } from './marketplaces/shopee.adapter.js';
 
 dotenv.config();
 
@@ -347,6 +348,8 @@ app.post('/api/marketplace-accounts/:accountId/sync', authenticateToken, async (
     let adapter: any;
     if (account.isDemo) {
       adapter = new FakeMarketplaceAdapter(account.marketplace, account.id);
+    } else if (account.marketplace === 'shopee') {
+      adapter = new ShopeeMarketplaceAdapter(account, prisma);
     } else {
       adapter = new FakeMarketplaceAdapter(account.marketplace, account.id);
     }
@@ -504,7 +507,9 @@ app.put('/api/marketplace-accounts/:id', authenticateToken, async (req: Authenti
 
 app.get('/api/marketplaces/shopee/authorize', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const authUrl = await ShopeeAuthService.generateAuthorizeUrl(prisma, req.user!.organizationId, req.user!.userId);
+    const envParam = (req.query.environment as string)?.trim().toLowerCase();
+    const targetEnv = envParam === 'production' ? 'production' : (envParam === 'sandbox' ? 'sandbox' : undefined);
+    const authUrl = await ShopeeAuthService.generateAuthorizeUrl(prisma, req.user!.organizationId, req.user!.userId, undefined, targetEnv);
     return res.json({ success: true, authUrl });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

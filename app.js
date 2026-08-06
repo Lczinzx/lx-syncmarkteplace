@@ -1600,24 +1600,46 @@ function setupEventListeners() {
     });
   }
 
-  const btnAuthShopee = document.getElementById('btn-authorize-shopee');
-  if (btnAuthShopee) {
-    btnAuthShopee.addEventListener('click', async () => {
-      btnAuthShopee.disabled = true;
-      btnAuthShopee.innerHTML = `🔄 Gerando URL...`;
+  const btnAuthShopeeProd = document.getElementById('btn-authorize-shopee');
+  if (btnAuthShopeeProd) {
+    btnAuthShopeeProd.addEventListener('click', async () => {
+      btnAuthShopeeProd.disabled = true;
+      btnAuthShopeeProd.innerHTML = `🔄 Gerando URL Produção...`;
       try {
-        const res = await apiFetch('/api/marketplaces/shopee/authorize');
+        const res = await apiFetch('/api/marketplaces/shopee/authorize?environment=production');
         if (res.success && res.authUrl) {
-          showNotification('info', 'Autorização Shopee', 'Redirecionando para a página oficial de autorização da Shopee Open Platform...');
+          showNotification('info', 'Autorização Shopee Produção', 'Redirecionando para a página oficial da Shopee (Produção)...');
           window.location.href = res.authUrl;
         } else {
-          showNotification('error', 'Falha na Autorização', res.error || 'Não foi possível gerar a URL de autorização da Shopee.');
+          showNotification('error', 'Falha na Autorização', res.error || 'Não foi possível gerar a URL de autorização de produção da Shopee.');
         }
       } catch (e) {
         showNotification('error', 'Erro na Autorização', e.message);
       } finally {
-        btnAuthShopee.disabled = false;
-        btnAuthShopee.innerHTML = `🛍️ Conectar Loja Shopee Real`;
+        btnAuthShopeeProd.disabled = false;
+        btnAuthShopeeProd.innerHTML = `🛍️ Conectar Shopee de Produção`;
+      }
+    });
+  }
+
+  const btnAuthShopeeSandbox = document.getElementById('btn-authorize-shopee-sandbox');
+  if (btnAuthShopeeSandbox) {
+    btnAuthShopeeSandbox.addEventListener('click', async () => {
+      btnAuthShopeeSandbox.disabled = true;
+      btnAuthShopeeSandbox.innerHTML = `🔄 Gerando URL Sandbox...`;
+      try {
+        const res = await apiFetch('/api/marketplaces/shopee/authorize?environment=sandbox');
+        if (res.success && res.authUrl) {
+          showNotification('info', 'Autorização Shopee Sandbox', 'Redirecionando para a página de teste da Shopee (Sandbox)...');
+          window.location.href = res.authUrl;
+        } else {
+          showNotification('error', 'Falha na Autorização', res.error || 'Não foi possível gerar a URL de autorização de sandbox da Shopee.');
+        }
+      } catch (e) {
+        showNotification('error', 'Erro na Autorização', e.message);
+      } finally {
+        btnAuthShopeeSandbox.disabled = false;
+        btnAuthShopeeSandbox.innerHTML = `🧪 Conectar Ambiente de Teste (Sandbox)`;
       }
     });
   }
@@ -1658,12 +1680,14 @@ function setupEventListeners() {
   if (filterAccountTypeSelect) {
     filterAccountTypeSelect.addEventListener('change', (e) => {
       const type = e.target.value;
-      if (type === 'all') {
-        renderMarketplaceListings(currentListings);
+      if (type === 'production') {
+        renderMarketplaceListings(currentListings.filter(l => l.account && l.account.environment === 'production'));
+      } else if (type === 'sandbox') {
+        renderMarketplaceListings(currentListings.filter(l => !l.account || l.account.environment === 'sandbox'));
       } else if (type === 'real') {
         renderMarketplaceListings(currentListings.filter(l => l.account && l.account.isDemo === false));
-      } else if (type === 'demo') {
-        renderMarketplaceListings(currentListings.filter(l => !l.account || l.account.isDemo === true));
+      } else {
+        renderMarketplaceListings(currentListings);
       }
     });
   }

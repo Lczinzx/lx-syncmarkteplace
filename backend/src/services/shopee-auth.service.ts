@@ -26,9 +26,11 @@ export class ShopeeAuthService {
     client: PrismaClient,
     organizationId: string,
     userId: string,
-    returnUrl?: string
+    returnUrl?: string,
+    environment?: 'sandbox' | 'production'
   ): Promise<string> {
-    const apiClient = new ShopeeApiClient();
+    const targetEnv = environment || (process.env.SHOPEE_ENVIRONMENT?.trim().toLowerCase() as 'sandbox' | 'production') || 'sandbox';
+    const apiClient = new ShopeeApiClient({ environment: targetEnv });
     const randomHex = crypto.randomBytes(16).toString('hex');
     const timestamp = Date.now();
     const expiresAt = new Date(timestamp + 10 * 60 * 1000); // 10 minutos de expiração
@@ -50,7 +52,7 @@ export class ShopeeAuthService {
           stateHash,
           organizationId,
           userId,
-          returnUrl,
+          returnUrl: returnUrl ? `${returnUrl}|env:${targetEnv}` : `env:${targetEnv}`,
           expiresAt
         }
       });
@@ -65,7 +67,7 @@ export class ShopeeAuthService {
           resourceType: 'OAUTH_STATE',
           resourceId: stateHash.slice(0, 12),
           status: 'SUCCESS',
-          newValueJson: JSON.stringify({ provider: 'shopee', expiresAt })
+          newValueJson: JSON.stringify({ provider: 'shopee', environment: targetEnv, expiresAt })
         }
       });
     }
@@ -100,10 +102,9 @@ export class ShopeeAuthService {
     }
 
     // 1. Tentar atualização condicional atômica em uma única instrução SQL/Prisma no banco
-    const updateResult = await client.marketplaceOAuthState.updateMany({
+    const updated = await client.marketplaceOAuthState.updateMany({
       where: {
         stateHash,
-        provider: 'shopee',
         usedAt: null,
         invalidatedAt: null,
         expiresAt: { gt: now }
@@ -113,103 +114,57 @@ export class ShopeeAuthService {
       }
     });
 
-    if (updateResult.count === 1) {
-      // Atualização condicional teve sucesso atômico! Somente 1 requisição concorrente conseguirá count === 1.
-      const oauthState = await client.marketplaceOAuthState.findUnique({ where: { stateHash } });
-      if (!oauthState) {
-        throw new Error('State OAuth não encontrado após atualização atômica.');
+    if (updated.count === 0) {
+      const existing = await client.marketplaceOAuthState.findUnique({
+        where: { stateHash }
+      });
+
+      if (!existing) {
+        if (typeof (client as any)?.auditLog?.create === 'function') {
+          await client.auditLog.create({
+            data: {
+              organizationId: 'system',
+              action: 'OAUTH_STATE_REJECTED',
+              resourceType: 'OAUTH_STATE',
+              resourceId: stateHash.slice(0, 12),
+              status: 'ERROR',
+              newValueJson: JSON.stringify({ reason: 'OAUTH_STATE_NOT_FOUND' })
+            }
+          });
+        }
+        const err = new Error('State de autorização não encontrado.') as any;
+        err.code = 'OAUTH_STATE_NOT_FOUND';
+        throw err;
       }
 
-      if (typeof (client as any)?.auditLog?.create === 'function') {
-        await client.auditLog.create({
-          data: {
-            organizationId: oauthState.organizationId,
-            userId: oauthState.userId,
-            action: 'OAUTH_STATE_CONSUMED',
-            resourceType: 'OAUTH_STATE',
-            resourceId: oauthState.id,
-            status: 'SUCCESS'
-          }
-        });
+      if (existing.usedAt) {
+        const err = new Error('State de autorização já foi utilizado anteriormente (Replay Attack bloqueado).') as any;
+        err.code = 'OAUTH_STATE_ALREADY_USED';
+        throw err;
       }
 
-      return {
-        id: oauthState.id,
-        organizationId: oauthState.organizationId,
-        userId: oauthState.userId,
-        returnUrl: oauthState.returnUrl || undefined,
-        expiresAt: oauthState.expiresAt
-      };
-    }
-
-    // 2. Se updateResult.count === 0, investigar o motivo específico para retornar o erro exato
-    const existing = await client.marketplaceOAuthState.findUnique({ where: { stateHash } });
-
-    if (!existing) {
-      if (typeof (client as any)?.auditLog?.create === 'function') {
-        await client.auditLog.create({
-          data: {
-            organizationId: 'system',
-            action: 'OAUTH_STATE_REJECTED',
-            resourceType: 'OAUTH_STATE',
-            resourceId: stateHash.slice(0, 12),
-            status: 'ERROR',
-            newValueJson: JSON.stringify({ reason: 'OAUTH_STATE_NOT_FOUND' })
-          }
-        });
+      if (existing.expiresAt <= now) {
+        const err = new Error('State de autorização expirou (expiração de 10 minutos).') as any;
+        err.code = 'OAUTH_STATE_EXPIRED';
+        throw err;
       }
-      const err = new Error('State de autorização não encontrado.') as any;
-      err.code = 'OAUTH_STATE_NOT_FOUND';
-      throw err;
     }
 
-    if (existing.usedAt) {
-      if (typeof (client as any)?.auditLog?.create === 'function') {
-        await client.auditLog.create({
-          data: {
-            organizationId: existing.organizationId,
-            userId: existing.userId,
-            action: 'OAUTH_STATE_REPLAY_ATTEMPT',
-            resourceType: 'OAUTH_STATE',
-            resourceId: existing.id,
-            status: 'ERROR',
-            newValueJson: JSON.stringify({ usedAt: existing.usedAt })
-          }
-        });
-      }
-      const err = new Error('State de autorização já foi utilizado anteriormente (Replay Attack bloqueado).') as any;
-      err.code = 'OAUTH_STATE_ALREADY_USED';
-      throw err;
+    const record = await client.marketplaceOAuthState.findUnique({
+      where: { stateHash }
+    });
+
+    if (!record) {
+      throw new Error('Erro ao recuperar state de autorização.');
     }
 
-    if (existing.invalidatedAt) {
-      const err = new Error('State de autorização foi invalidado.') as any;
-      err.code = 'OAUTH_STATE_INVALIDATED';
-      throw err;
-    }
-
-    if (existing.expiresAt <= now) {
-      if (typeof (client as any)?.auditLog?.create === 'function') {
-        await client.auditLog.create({
-          data: {
-            organizationId: existing.organizationId,
-            userId: existing.userId,
-            action: 'OAUTH_STATE_EXPIRED',
-            resourceType: 'OAUTH_STATE',
-            resourceId: existing.id,
-            status: 'ERROR',
-            newValueJson: JSON.stringify({ expiresAt: existing.expiresAt })
-          }
-        });
-      }
-      const err = new Error('State de autorização expirou (expiração de 10 minutos).') as any;
-      err.code = 'OAUTH_STATE_EXPIRED';
-      throw err;
-    }
-
-    const err = new Error('Divergência de contexto no state OAuth.') as any;
-    err.code = 'OAUTH_STATE_CONTEXT_MISMATCH';
-    throw err;
+    return {
+      id: record.id,
+      organizationId: record.organizationId,
+      userId: record.userId,
+      returnUrl: record.returnUrl || undefined,
+      expiresAt: record.expiresAt
+    };
   }
 
   /**
@@ -221,7 +176,11 @@ export class ShopeeAuthService {
     shopIdNum: number,
     statePayload: ShopeeStatePayload
   ): Promise<MarketplaceAccount> {
-    const apiClient = new ShopeeApiClient();
+    const targetEnv = (statePayload.returnUrl && statePayload.returnUrl.includes('env:production'))
+      ? 'production'
+      : (process.env.SHOPEE_ENVIRONMENT?.trim().toLowerCase() || 'sandbox');
+
+    const apiClient = new ShopeeApiClient({ environment: targetEnv as 'sandbox' | 'production' });
     const tokenRes = await apiClient.getTokens(code, shopIdNum);
 
     if (tokenRes.error || !tokenRes.response) {
@@ -233,14 +192,15 @@ export class ShopeeAuthService {
     const encryptedAccessToken = encryptSecret(access_token);
     const encryptedRefreshToken = encryptSecret(refresh_token);
     const tokenExpiresAt = new Date(Date.now() + expire_in * 1000);
-    const environment = process.env.SHOPEE_ENVIRONMENT?.trim().toLowerCase() || 'sandbox';
+    const environment = targetEnv;
     const now = new Date();
 
     const existing = await client.marketplaceAccount.findFirst({
       where: {
         organizationId: statePayload.organizationId,
         marketplace: 'shopee',
-        shopId: String(shop_id)
+        shopId: String(shop_id),
+        environment
       }
     });
 
