@@ -1233,6 +1233,109 @@ app.patch('/api/master-products/:id/primary-image', authenticateToken, async (re
   }
 });
 
+/* ==========================================================================
+   ENDPOINTS ADMINISTRATIVOS DE AUDITORIA E LIMPEZA DEMO (FASE 4.1.3)
+   Acesso restrito estritamente a usuários com e-mail cadastrado em isAdminEmail
+   ========================================================================== */
+
+app.get('/api/admin/cleanup-demo/dry-run', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!isAdminEmail(req.user?.email || '')) {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Acesso restrito a administradores do sistema.' } });
+    }
+
+    const demoAccounts = await prisma.marketplaceAccount.findMany({
+      where: { isDemo: true },
+      select: { id: true, marketplace: true, accountName: true, shopId: true, organizationId: true, isDemo: true }
+    });
+
+    const realAccounts = await prisma.marketplaceAccount.findMany({
+      where: { isDemo: false },
+      select: { id: true, marketplace: true, accountName: true, shopId: true, organizationId: true, isDemo: true }
+    });
+
+    const demoAccountIds = demoAccounts.map(a => a.id);
+    const realAccountIds = realAccounts.map(a => a.id);
+
+    const demoListingsCount = demoAccountIds.length > 0 ? await prisma.marketplaceListing.count({
+      where: { marketplaceAccountId: { in: demoAccountIds } }
+    }) : 0;
+
+    const realListingsCount = realAccountIds.length > 0 ? await prisma.marketplaceListing.count({
+      where: { marketplaceAccountId: { in: realAccountIds } }
+    }) : 0;
+
+    const demoVariationsCount = demoAccountIds.length > 0 ? await prisma.marketplaceVariation.count({
+      where: { listing: { marketplaceAccountId: { in: demoAccountIds } } }
+    }) : 0;
+
+    const realVariationsCount = realAccountIds.length > 0 ? await prisma.marketplaceVariation.count({
+      where: { listing: { marketplaceAccountId: { in: realAccountIds } } }
+    }) : 0;
+
+    const demoImagesCount = demoAccountIds.length > 0 ? await prisma.marketplaceListingImage.count({
+      where: { listing: { marketplaceAccountId: { in: demoAccountIds } } }
+    }) : 0;
+
+    const realImagesCount = realAccountIds.length > 0 ? await prisma.marketplaceListingImage.count({
+      where: { listing: { marketplaceAccountId: { in: realAccountIds } } }
+    }) : 0;
+
+    return res.json({
+      success: true,
+      dryRun: true,
+      report: {
+        demoAccountsCount: demoAccounts.length,
+        realAccountsCount: realAccounts.length,
+        demoListingsCount,
+        realListingsCount,
+        demoVariationsCount,
+        realVariationsCount,
+        demoImagesCount,
+        realImagesCount,
+        demoAccounts,
+        realAccounts
+      }
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: { code: 'ADMIN_DRYRUN_FAILED', message } });
+  }
+});
+
+app.post('/api/admin/cleanup-demo', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!isAdminEmail(req.user?.email || '')) {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Acesso restrito a administradores do sistema.' } });
+    }
+
+    if (process.env.ALLOW_DEMO_CLEANUP !== 'true') {
+      return res.status(400).json({ error: { code: 'CLEANUP_NOT_ALLOWED', message: 'Variável ALLOW_DEMO_CLEANUP não está definida como "true" no ambiente.' } });
+    }
+
+    if (req.body?.confirm !== 'REMOVE_DEMO_DATA') {
+      return res.status(400).json({ error: { code: 'INVALID_CONFIRMATION', message: 'Confirmação inválida. Envie {"confirm": "REMOVE_DEMO_DATA"}.' } });
+    }
+
+    const cleanupResult = await cleanupDemoData(prisma);
+
+    const remainingRealAccounts = await prisma.marketplaceAccount.findMany({
+      where: { isDemo: false },
+      select: { id: true, marketplace: true, accountName: true, shopId: true, isDemo: true }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Limpeza administrativa concluída com sucesso no PostgreSQL.',
+      cleanupResult,
+      preservedRealAccounts: remainingRealAccounts
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: { code: 'ADMIN_CLEANUP_FAILED', message } });
+  }
+});
+
 const healthHandlerLive = (req: Request, res: Response) => {
   return res.status(200).json({ status: 'ok', service: 'lx-sync-api', uptime: process.uptime() });
 };

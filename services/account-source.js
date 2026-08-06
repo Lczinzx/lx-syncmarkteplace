@@ -4,7 +4,7 @@
  * Nenhum fallback para localStorage/chrome.storage.
  */
 
-export const APP_STORAGE_VERSION = 5;
+export const APP_STORAGE_VERSION = 6;
 
 // Chaves legadas de contas que devem ser removidas na migração v5
 export const LEGACY_ACCOUNT_KEYS = [
