@@ -6,10 +6,10 @@ import { FakeMarketplaceAdapter } from '../marketplaces/fake-marketplace.adapter
 export const DEMO_ORGANIZATION_ID = 'org-festum-decor';
 
 export const DEMO_ACCOUNTS = [
-  { id: 'acc-shopee-demo', marketplace: 'shopee', accountName: 'Festum Decor - Shopee', externalAccountId: 'demo-shopee-2035668', shopId: '2035668', sellerId: '2035668' },
-  { id: 'acc-mercadolivre-demo', marketplace: 'mercadolivre', accountName: 'Festum Decor - Mercado Livre', externalAccountId: 'demo-meli-55412', shopId: '55412', sellerId: '55412' },
-  { id: 'acc-tiktok-demo', marketplace: 'tiktok', accountName: 'Festum Decor - TikTok', externalAccountId: 'demo-tiktok-99120', shopId: '99120', sellerId: '99120' },
-  { id: 'acc-amazon-demo', marketplace: 'amazon', accountName: 'Festum Decor - Amazon BR', externalAccountId: 'demo-amazon-33019', shopId: '33019', sellerId: '33019' }
+  { id: 'acc-shopee-demo', marketplace: 'shopee', accountName: 'Festum Decor - Shopee (DEMO)', externalAccountId: 'demo-shopee-9999', shopId: 'demo-9999', sellerId: 'demo-9999' },
+  { id: 'acc-mercadolivre-demo', marketplace: 'mercadolivre', accountName: 'Festum Decor - Mercado Livre (DEMO)', externalAccountId: 'demo-meli-55412', shopId: '55412', sellerId: '55412' },
+  { id: 'acc-tiktok-demo', marketplace: 'tiktok', accountName: 'Festum Decor - TikTok (DEMO)', externalAccountId: 'demo-tiktok-99120', shopId: '99120', sellerId: '99120' },
+  { id: 'acc-amazon-demo', marketplace: 'amazon', accountName: 'Festum Decor - Amazon BR (DEMO)', externalAccountId: 'demo-amazon-33019', shopId: '33019', sellerId: '33019' }
 ];
 
 export interface DemoSeedResult {
@@ -19,6 +19,69 @@ export interface DemoSeedResult {
   listingsCreated: number;
   groupsCreated: number;
   reason?: string;
+}
+
+export interface DemoCleanupResult {
+  accountsDeleted: number;
+  listingsDeleted: number;
+  variationsDeleted: number;
+}
+
+/**
+ * Remove com segurança todos os dados de demonstração (isDemo = true) no PostgreSQL.
+ * Trava de Segurança: ABORTA se qualquer conta com isDemo = false estiver selecionada.
+ */
+export async function cleanupDemoData(client: PrismaClient): Promise<DemoCleanupResult> {
+  const demoAccounts = await client.marketplaceAccount.findMany({
+    where: { isDemo: true }
+  });
+
+  if (demoAccounts.length === 0) {
+    return { accountsDeleted: 0, listingsDeleted: 0, variationsDeleted: 0 };
+  }
+
+  const demoAccountIds = demoAccounts.map(a => a.id);
+
+  // Trava de segurança contra exclusão acidental de dados reais
+  const realInList = demoAccounts.filter(a => a.isDemo === false);
+  if (realInList.length > 0) {
+    throw new Error('ABORTADO: Tentativa de remoção de dados DEMO envolveu contas reais (isDemo=false).');
+  }
+
+  return await client.$transaction(async (tx) => {
+    const demoListings = await tx.marketplaceListing.findMany({
+      where: { marketplaceAccountId: { in: demoAccountIds } },
+      select: { id: true }
+    });
+
+    const demoListingIds = demoListings.map(l => l.id);
+
+    await tx.marketplaceListingImage.deleteMany({
+      where: { marketplaceListingId: { in: demoListingIds } }
+    });
+
+    const varRes = await tx.marketplaceVariation.deleteMany({
+      where: { marketplaceListingId: { in: demoListingIds } }
+    });
+
+    await tx.productMapping.deleteMany({
+      where: { marketplaceListingId: { in: demoListingIds } }
+    });
+
+    const listRes = await tx.marketplaceListing.deleteMany({
+      where: { marketplaceAccountId: { in: demoAccountIds } }
+    });
+
+    const accRes = await tx.marketplaceAccount.deleteMany({
+      where: { id: { in: demoAccountIds }, isDemo: true }
+    });
+
+    return {
+      accountsDeleted: accRes.count,
+      listingsDeleted: listRes.count,
+      variationsDeleted: varRes.count
+    };
+  });
 }
 
 /**

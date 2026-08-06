@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { verifyGoogleToken, generateSessionJWT, verifySessionJWT, isAdminEmail, UserSessionPayload } from './auth/google-auth.service.js';
 import { FakeMarketplaceAdapter } from './marketplaces/fake-marketplace.adapter.js';
 import { ImportService } from './services/import.service.js';
-import { ensureDemoData } from './services/demo-seed.service.js';
+import { ensureDemoData, cleanupDemoData } from './services/demo-seed.service.js';
 import { toFriendlyDbErrorMessage } from './utils/prisma-errors.js';
 import { parseAllowedOrigins, normalizeOrigin } from './utils/cors-config.js';
 import {
@@ -1265,6 +1265,19 @@ app.use('/api', (req: Request, res: Response) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 LX Sync Backend Server (Fase 3) rodando na porta ${PORT}`);
+app.listen(PORT, async () => {
+  console.log(`🚀 LX Sync Backend Server (Fase 4.1.3) rodando na porta ${PORT}`);
+  try {
+    if (process.env.ENABLE_DEMO_SEED === 'true') {
+      const seedRes = await ensureDemoData(prisma);
+      console.log('[BOOT] Demo seed ativado:', seedRes);
+    } else {
+      const cleanRes = await cleanupDemoData(prisma);
+      if (cleanRes.accountsDeleted > 0) {
+        console.log('[BOOT] Produção (ENABLE_DEMO_SEED=false): Limpeza de dados DEMO concluída:', cleanRes);
+      }
+    }
+  } catch (e: any) {
+    console.warn('[BOOT] Gerenciamento de dados DEMO no boot:', e.message);
+  }
 });

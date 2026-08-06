@@ -10,7 +10,7 @@ import { AuthAPI } from './services/api/auth-api.js';
 import { AccountsAPI } from './services/api/accounts-api.js';
 import { ListingsAPI } from './services/api/listings-api.js';
 import { GroupsAPI } from './services/api/groups-api.js';
-import { extractAccountsFromResponse, normalizeAccountsFromApi, isAccountNotFoundError } from './services/account-source.js';
+import { extractAccountsFromResponse, normalizeAccountsFromApi, isAccountNotFoundError, normalizeListingStatus } from './services/account-source.js';
 
 export function showNotification(type = 'info', title = '', message = '', actionLabel = null, onAction = null) {
   const container = document.getElementById('toast-container');
@@ -1060,11 +1060,11 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
         <button class="btn btn-primary" onclick="document.querySelector('[data-tab=\\"channels\\"]').click()">Ir para Canais & APIs</button>
       </div>
     `;
-    updateSummaryCards();
+    updateSummaryCards(listingsToRender);
     return;
   }
 
-  updateSummaryCards();
+  updateSummaryCards(listingsToRender);
 
   const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4OCIgaGVpZ2h0PSI4OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIxMiIgZmlsbD0iIzE5MTIxNCIgc3Ryb2tlPSJyZ2JhKDIzOSwgNjgsIDY4LCAwLjMpIiBzdHJva2Utd2lkdGg9IjEiLz48dGV4dCB4PSI1MCUiIHk9IjQyJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI0VGNDQ0NCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSI4MDAiPkxYPC90ZXh0Pjx0ZXh0IHg9IjUwJSIgeT0iNjIlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOUNBM0FGIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSI5IiBmb250LXdlaWdodD0iNjAwIj5TeW5jPC90ZXh0Pjwvc3ZnPg==';
 
@@ -1073,25 +1073,33 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
     const variations = listing.variations || [];
     const isExpanded = expandedListings.has(listing.id);
     
-    const mainImageUrl = listing.imageUrl || placeholderSvg;
+    const imgRes = resolveCardImage(listing);
+    const mainImageUrl = imgRes.url;
     const totalStock = variations.reduce((sum, v) => sum + (v.stock || 0), 0);
     const priceMin = variations.length > 0 ? Math.min(...variations.map(v => v.price || 0)) : 0;
     const priceMax = variations.length > 0 ? Math.max(...variations.map(v => v.price || 0)) : 0;
     const priceRange = priceMin === priceMax ? `R$ ${priceMin.toFixed(2)}` : `R$ ${priceMin.toFixed(2)} - R$ ${priceMax.toFixed(2)}`;
-    const statusIcon = listing.status === 'PAUSED' ? '⏸' : '✅';
-    const statusText = listing.status === 'PAUSED' ? 'PAUSADO' : 'ATIVO';
+    
+    const normStatus = normalizeListingStatus(listing.status, account.marketplace);
+    const statusIcon = normStatus === 'PAUSED' ? '⏸' : '✅';
+    const statusText = normStatus === 'PAUSED' ? 'PAUSADO' : 'ATIVO';
+
+    const accountBadgeHtml = account.isDemo === true 
+      ? '<span style="background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.4); color: #FBBF24; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">⚡ DEMO</span>' 
+      : '<span style="background: rgba(16,185,129,0.18); border: 1px solid rgba(16,185,129,0.4); color: #10B981; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;">🔒 CONTA REAL</span>';
 
     const variationRows = variations.map(v => {
-      const varImageUrl = v.imageUrl || placeholderSvg;
+      const varImageUrl = v.imageUrl || mainImageUrl || placeholderSvg;
       const stock = v.stock || 0;
-      const stockClass = stock === 0 ? 'zero' : stock <= 2 ? 'low' : '';
       const stockText = stock === 0 ? 'SEM ESTOQUE' : stock <= 2 ? `BAIXO (${stock} un)` : `${stock} un`;
       const skuText = v.currentSku && v.currentSku.trim() ? escapeHtml(v.currentSku) : '<span style="color:#EF4444;">Sem SKU</span>';
+      const vStatusNorm = normalizeListingStatus(v.status, account.marketplace);
       
       return `
         <tr class="variation-row" data-variation-id="${escapeHtml(v.id)}" onclick="event.stopPropagation(); window.openSkuEditModal('${escapeHtml(v.id)}')">
           <td>
             <img src="${varImageUrl}" alt="${escapeHtml(v.variationName)}" class="variation-image" 
+                 loading="lazy" decoding="async"
                  onerror="this.onerror=null; this.src='${placeholderSvg}';">
           </td>
           <td>
@@ -1105,7 +1113,7 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
             <span class="stock-indicator ${stock === 0 ? 'stock-zero' : stock <= 2 ? 'stock-low' : 'stock-normal'}">${stockText}</span>
           </td>
           <td>
-            <span class="status-chip ${v.status === 'ACTIVE' ? 'active' : 'paused'}">${v.status === 'ACTIVE' ? '✅' : '⏸'}</span>
+            <span class="status-chip ${vStatusNorm === 'ACTIVE' ? 'active' : 'paused'}">${vStatusNorm === 'ACTIVE' ? '✅' : '⏸'}</span>
           </td>
           <td style="text-align: right;">
             <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); window.openSkuEditModal('${escapeHtml(v.id)}')" title="Editar SKU">
@@ -1120,16 +1128,18 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
       <article class="announcement-card ${isExpanded ? 'expanded' : ''}" data-listing-id="${escapeHtml(listing.id)}">
         <div class="card-header-wrapper">
           <img src="${mainImageUrl}" alt="${escapeHtml(listing.title)}" class="listing-main-image" 
+               loading="lazy" decoding="async"
                onerror="this.onerror=null; this.src='${placeholderSvg}';">
           <div class="card-header-info">
             <h3 class="announcement-title">${escapeHtml(listing.title)}</h3>
             <div class="announcement-id-row">
               <code class="external-id-badge">${escapeHtml(listing.externalListingId)}</code>
             </div>
-            <div class="announcement-meta-pills">
-              <span class="badge ${account.marketplace || 'meli'}">${escapeHtml((account.marketplace || 'mp').toUpperCase())}</span>
+            <div class="announcement-meta-pills" style="gap: 6px; flex-wrap: wrap;">
+              <span class="badge ${account.marketplace || 'shopee'}">${escapeHtml((account.marketplace || 'mp').toUpperCase())}</span>
+              ${accountBadgeHtml}
               <span class="badge-account-name">${escapeHtml(account.accountName || 'Festum Decor')}</span>
-              <span class="status-chip ${listing.status === 'PAUSED' ? 'paused' : 'active'}">${statusIcon} ${statusText}</span>
+              <span class="status-chip ${normStatus === 'PAUSED' ? 'paused' : 'active'}">${statusIcon} ${statusText}</span>
             </div>
           </div>
         </div>
@@ -1149,7 +1159,7 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
           </div>
           <div class="metric-box">
             <span class="metric-label">Última Sync</span>
-            <span class="metric-value sync">${new Date(listing.updatedAt).toLocaleDateString('pt-BR')}</span>
+            <span class="metric-value sync">${new Date(listing.updatedAt || Date.now()).toLocaleDateString('pt-BR')}</span>
           </div>
         </div>
 
@@ -1190,14 +1200,14 @@ function renderMarketplaceListings(listingsToRender = currentListings) {
   }).join('');
 }
 
-function updateSummaryCards() {
-  const totalListings = currentListings.length;
-  const totalVariations = currentListings.reduce((sum, l) => sum + (l.variations?.length || 0), 0);
-  const active = currentListings.filter(l => l.status === 'ACTIVE').length;
-  const paused = currentListings.filter(l => l.status === 'PAUSED').length;
-  const zeroStock = currentListings.reduce((sum, l) => sum + (l.variations?.filter(v => (v.stock || 0) === 0).length || 0), 0);
-  const lowStock = currentListings.reduce((sum, l) => sum + (l.variations?.filter(v => (v.stock || 0) > 0 && (v.stock || 0) <= 2).length || 0), 0);
-  const noSku = currentListings.reduce((sum, l) => sum + (l.variations?.filter(v => !v.currentSku || v.currentSku.trim() === '').length || 0), 0);
+function updateSummaryCards(targetListings = currentListings) {
+  const totalListings = targetListings.length;
+  const totalVariations = targetListings.reduce((sum, l) => sum + (l.variations?.length || 0), 0);
+  const active = targetListings.filter(l => normalizeListingStatus(l.status, l.account?.marketplace) === 'ACTIVE').length;
+  const paused = targetListings.filter(l => normalizeListingStatus(l.status, l.account?.marketplace) === 'PAUSED').length;
+  const zeroStock = targetListings.reduce((sum, l) => sum + (l.variations?.filter(v => (v.stock || 0) === 0).length || 0), 0);
+  const lowStock = targetListings.reduce((sum, l) => sum + (l.variations?.filter(v => (v.stock || 0) > 0 && (v.stock || 0) <= 2).length || 0), 0);
+  const noSku = targetListings.reduce((sum, l) => sum + (l.variations?.filter(v => !v.currentSku || v.currentSku.trim() === '').length || 0), 0);
 
   const updates = {
     'summary-total-listings': totalListings,
@@ -1216,7 +1226,7 @@ function updateSummaryCards() {
 
   const counterEl = document.getElementById('listings-counter');
   if (counterEl) {
-    counterEl.textContent = `${totalListings} anúncio(s) · ${totalVariations} variação(ões)`;
+    counterEl.textContent = `${totalListings} anúncio(s) · ${totalVariations} variação(ões) (Métricas dos anúncios exibidos)`;
   }
 
   // Atualiza o badge lateral de "Anúncios & SKUs" no menu de navegação

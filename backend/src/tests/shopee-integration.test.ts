@@ -3,10 +3,11 @@ import assert from 'assert';
 import { ShopeeApiClient } from '../marketplaces/shopee-api.client.js';
 import { ShopeeAuthService } from '../services/shopee-auth.service.js';
 import { ShopeeMarketplaceAdapter } from '../marketplaces/shopee.adapter.js';
-import { encryptSecret, decryptSecret } from '../utils/crypto.js';
+import { cleanupDemoData } from '../services/demo-seed.service.js';
 import { toAccountView } from '../services/accounts.service.js';
+import { normalizeListingStatus } from '../utils/status-normalizer.js';
 
-describe('⚡ FASE 4.1.2 — TESTES INTEGRADOS DA SHOPEE (CONSUMO ATÔMICO & CONCORRÊNCIA DE STATE OAUTH)', () => {
+describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STATUS, LIMPEZA DEMO & SEGURANÇA)', () => {
   const samplePartnerId = 2005884;
   const samplePartnerKey = 'shopee_test_partner_key_99887766554433221100';
 
@@ -230,5 +231,55 @@ describe('⚡ FASE 4.1.2 — TESTES INTEGRADOS DA SHOPEE (CONSUMO ATÔMICO & CON
 
     const rejectedError = (rejected[0] as PromiseRejectedResult).reason;
     assert.strictEqual(rejectedError.code, 'OAUTH_STATE_ALREADY_USED');
+  });
+
+  it('9. Deve normalizar status de anúncios remotos (ACTIVE, NORMAL, published -> ACTIVE) e (PAUSED, unpublished -> PAUSED)', () => {
+    assert.strictEqual(normalizeListingStatus('ACTIVE'), 'ACTIVE');
+    assert.strictEqual(normalizeListingStatus('NORMAL'), 'ACTIVE');
+    assert.strictEqual(normalizeListingStatus('active'), 'ACTIVE');
+    assert.strictEqual(normalizeListingStatus('published'), 'ACTIVE');
+
+    assert.strictEqual(normalizeListingStatus('PAUSED'), 'PAUSED');
+    assert.strictEqual(normalizeListingStatus('paused'), 'PAUSED');
+    assert.strictEqual(normalizeListingStatus('unpublished'), 'PAUSED');
+    assert.strictEqual(normalizeListingStatus('banned'), 'PAUSED');
+  });
+
+  it('10. Deve garantir que cleanupDemoData remova apenas contas DEMO (isDemo=true) preservando contas reais', async () => {
+    const deletedAccountIds: string[] = [];
+
+    const mockTx = {
+      marketplaceListing: {
+        findMany: async () => [{ id: 'listing-demo-1', masterProductId: 'master-1' }],
+        deleteMany: async () => ({ count: 1 }),
+        count: async () => 0
+      },
+      marketplaceListingImage: { deleteMany: async () => ({ count: 1 }) },
+      marketplaceVariation: { deleteMany: async () => ({ count: 1 }) },
+      productMapping: { deleteMany: async () => ({ count: 1 }) },
+      marketplaceAccount: {
+        deleteMany: async (query: any) => {
+          deletedAccountIds.push(...query.where.id.in);
+          return { count: query.where.id.in.length };
+        }
+      },
+      masterProduct: { delete: async () => ({}) }
+    };
+
+    const mockPrisma = {
+      marketplaceAccount: {
+        findMany: async () => [
+          { id: 'acc-shopee-demo', isDemo: true },
+          { id: 'acc-meli-demo', isDemo: true }
+        ]
+      },
+      $transaction: async (cb: any) => await cb(mockTx)
+    } as any;
+
+    const res = await cleanupDemoData(mockPrisma);
+
+    assert.strictEqual(res.accountsDeleted, 2);
+    assert.strictEqual(res.listingsDeleted, 1);
+    assert.deepStrictEqual(deletedAccountIds, ['acc-shopee-demo', 'acc-meli-demo']);
   });
 });
