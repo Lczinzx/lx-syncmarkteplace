@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { encryptSecret } from '../utils/crypto.js';
+import { ImportService } from './import.service.js';
+import { FakeMarketplaceAdapter } from '../marketplaces/fake-marketplace.adapter.js';
 
 export const DEMO_ORGANIZATION_ID = 'org-festum-decor';
 
@@ -71,6 +73,20 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
     createdAccountIds.push(acc.id);
   }
 
+  // Importar o conjunto completo de 50 anúncios Shopee (FDM-0001 a FDM-0050) via FakeMarketplaceAdapter
+  const adapter = new FakeMarketplaceAdapter();
+  await ImportService.executeImportJob(
+    client,
+    {
+      id: 'acc-shopee-demo',
+      organizationId: org.id,
+      marketplace: 'shopee',
+      accountName: 'Festum Decor - Shopee'
+    },
+    'system@lxsync.com',
+    adapter
+  );
+
   // 1. Criar Produto Mestre Central Multicanal: "Painel Redondo Zoológico 50x50"
   const masterSku = 'Z - Red50 - Zoologico - 04';
   const masterImageUrl = 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=400&q=80';
@@ -99,8 +115,6 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
     { accId: 'acc-amazon-demo', extId: 'FDM-AMZ-0001', title: 'Painel Redondo Festa Zoológico', img: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80' }
   ];
 
-  let listingsCount = 0;
-
   for (const item of multiChannelListings) {
     const listing = await client.marketplaceListing.upsert({
       where: {
@@ -118,6 +132,22 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
         title: item.title,
         status: 'ACTIVE',
         imageUrl: item.img
+      }
+    });
+
+    // Criar imagem primária na tabela MarketplaceListingImage
+    await client.marketplaceListingImage.upsert({
+      where: { id: `img-${listing.id}-main` },
+      update: { url: item.img, isPrimary: true, updatedAt: new Date() },
+      create: {
+        id: `img-${listing.id}-main`,
+        organizationId: org.id,
+        marketplaceListingId: listing.id,
+        url: item.img,
+        position: 0,
+        isPrimary: true,
+        source: 'SEED',
+        status: 'ACTIVE'
       }
     });
 
@@ -160,33 +190,21 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
         confirmedByUser: true
       }
     });
-
-    listingsCount++;
   }
 
-  // 3. Limpeza Idempotente de Anúncios Obsoletos/Inválidos das contas DEMO
-  const validDemoListingIds = new Set(['FDM-0001', 'FDM-ML-0001', 'FDM-TT-0001', 'FDM-AMZ-0001', ...Array.from({ length: 50 }, (_, i) => `FDM-${String(i + 1).padStart(4, '0')}`)]);
-  
-  const obsoleteListings = await client.marketplaceListing.findMany({
-    where: {
-      marketplaceAccountId: { in: createdAccountIds },
-      externalListingId: { notIn: Array.from(validDemoListingIds) }
-    },
-    select: { id: true }
-  });
+  // Auditar totais no PostgreSQL
+  const totalListings = await client.marketplaceListing.count({ where: { organizationId: org.id } });
+  const totalVariations = await client.marketplaceVariation.count({ where: { organizationId: org.id } });
+  const totalMappings = await client.productMapping.count({ where: { organizationId: org.id } });
+  const totalImages = await client.marketplaceListingImage.count({ where: { organizationId: org.id } });
 
-  if (obsoleteListings.length > 0) {
-    const obsoleteIds = obsoleteListings.map(l => l.id);
-    await client.marketplaceVariation.deleteMany({ where: { marketplaceListingId: { in: obsoleteIds } } });
-    await client.marketplaceListing.deleteMany({ where: { id: { in: obsoleteIds } } });
-    console.log(`[DEMO SEED] ${obsoleteIds.length} anúncio(s) DEMO obsoleto(s) removido(s).`);
-  }
+  console.log(`[DEMO-SEED] Seed concluído: ${totalListings} anúncios, ${totalVariations} variações, ${totalMappings} mappings, ${totalImages} imagens em 4 contas DEMO.`);
 
   return {
     enabled: true,
     seeded: true,
     accountsCreated: createdAccountIds.length,
-    listingsCreated: listingsCount,
+    listingsCreated: totalListings,
     groupsCreated: 1
   };
 }

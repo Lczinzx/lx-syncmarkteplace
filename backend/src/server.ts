@@ -469,7 +469,8 @@ app.post('/api/marketplace-accounts/:id/import', authenticateToken, async (req: 
 
 app.get('/api/marketplace-listings', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const result = await listMarketplaceListings(prisma, req.user!.organizationId);
+    const marketplaceFilter = req.query.marketplace as string | undefined;
+    const result = await listMarketplaceListings(prisma, req.user!.organizationId, marketplaceFilter);
     return res.json({
       success: true,
       listings: result.listings,

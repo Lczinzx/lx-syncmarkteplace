@@ -144,10 +144,17 @@ export function toListingView(listing: ListingWithRelations): MarketplaceListing
  */
 export async function listMarketplaceListings(
   client: PrismaClient,
-  organizationId: string
+  organizationId: string,
+  marketplaceFilter?: string
 ): Promise<ListingsResultView> {
+  const whereClause: any = { organizationId };
+
+  if (marketplaceFilter && marketplaceFilter.trim() !== '' && marketplaceFilter.toLowerCase() !== 'all') {
+    whereClause.account = { marketplace: marketplaceFilter.toLowerCase() };
+  }
+
   const rows = await client.marketplaceListing.findMany({
-    where: { organizationId },
+    where: whereClause,
     include: {
       account: true,
       variations: true,
