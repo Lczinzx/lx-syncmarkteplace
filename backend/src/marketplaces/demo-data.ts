@@ -66,9 +66,26 @@ function nextListingId(): string {
   return 'FDM-' + String(listingCounter).padStart(4, '0');
 }
 
-// Imagens DEMO determinísticas (seeded) — consistentes entre execuções
-function demoImage(seed: string, w = 200, h = 200): string {
-  return `https://picsum.photos/seed/${seed}/${w}/${h}`;
+const DEMO_CDN_IMAGES = [
+  'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=400&q=80',
+  'https://images.unsplash.com/photo-1530103862676-de8c9debad1d?w=400&q=80',
+  'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?w=400&q=80',
+  'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
+  'https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?w=400&q=80',
+  'https://images.unsplash.com/photo-1502635385003-ee1e6a1a742d?w=400&q=80',
+  'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=400&q=80',
+  'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=400&q=80'
+];
+
+// Imagens DEMO determinísticas (seeded) — consistentes e públicas (HTTP 200 OK)
+function demoImage(seed: string, w = 400, h = 400): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  const idx = Math.abs(hash) % DEMO_CDN_IMAGES.length;
+  return DEMO_CDN_IMAGES[idx];
 }
 
 function listingImage(externalListingId: string): string {

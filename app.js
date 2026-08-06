@@ -79,6 +79,12 @@ function resolveCardImage(listing) {
   if (listing.imageUrl && listing.imageUrl.trim() !== '') {
     return { url: listing.imageUrl, source: 'LISTING', level: 1 };
   }
+  if (Array.isArray(listing.images) && listing.images.length > 0) {
+    const primary = listing.images.find(img => img.isPrimary) || listing.images[0];
+    if (primary && primary.url && primary.url.trim() !== '') {
+      return { url: primary.url, source: 'LISTING_IMAGE_TABLE', level: 1 };
+    }
+  }
   if (listing.masterProductImageUrl && listing.masterProductImageUrl.trim() !== '') {
     return { url: listing.masterProductImageUrl, source: 'MASTER_PRODUCT', level: 2 };
   }
@@ -552,18 +558,22 @@ function renderCatalogListings(listingsToRender = currentListings) {
 
     const totalStock = (listing.variations || []).reduce((sum, v) => sum + (v.stock || 0), 0);
     const mp = (listing.account?.marketplace || 'shopee').toLowerCase();
-    const linkedChannelsCount = listing.linkedChannels?.length || (listing.linkedMasterProductId ? 1 : 0);
 
-    const linkedBadges = (listing.linkedChannels || []).map(c =>
-      `<span class="badge ${c.marketplace}" style="font-size: 9px; padding: 2px 4px;">${c.marketplace.toUpperCase()}</span>`
+    const actualLinked = listing.linkedChannels || [];
+    const hasEquivalentLinks = actualLinked.length > 0;
+    const totalChannelsCount = hasEquivalentLinks ? actualLinked.length + 1 : 1;
+    const linkedText = hasEquivalentLinks ? `Vinculado em ${totalChannelsCount} canais` : '1 canal (Atual)';
+
+    const linkedBadges = actualLinked.map(c =>
+      `<span class="badge ${c.marketplace.toLowerCase()}" style="font-size: 9px; padding: 2px 4px;">${c.marketplace.toUpperCase()}</span>`
     ).join(' ');
 
     return `
-      <article class="catalog-card ${isSelected ? 'selected' : ''}" data-listing-id="${escapeHtml(listing.id)}">
+      <article class="catalog-card ${isSelected ? 'selected' : ''}" data-listing-id="${escapeHtml(listing.id)}" onclick="window.openListingDetailModal('${escapeHtml(listing.id)}')">
         <div class="catalog-card-image-wrap">
           <input type="checkbox" class="catalog-card-checkbox" data-listing-id="${escapeHtml(listing.id)}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleListingSelection('${escapeHtml(listing.id)}')">
           <span class="status-chip ${listing.status === 'PAUSED' ? 'paused' : 'active'} catalog-card-badge-top">${listing.status}</span>
-          <img src="${imgRes.url}" alt="${escapeHtml(listing.title)}" class="catalog-card-img" onerror="this.onerror=null; this.src='${placeholderSvg}';" onclick="window.openListingDetailModal('${escapeHtml(listing.id)}')">
+          <img src="${imgRes.url}" alt="${escapeHtml(listing.title)}" class="catalog-card-img" loading="lazy" decoding="async" style="object-fit: cover;" onerror="this.onerror=null; this.src='${placeholderSvg}';">
         </div>
 
         <div class="catalog-card-body">
@@ -572,7 +582,7 @@ function renderCatalogListings(listingsToRender = currentListings) {
             <span>${escapeHtml(listing.account?.accountName || 'Conta')}</span>
           </div>
 
-          <h4 class="catalog-card-title" title="${escapeHtml(listing.title)}" onclick="window.openListingDetailModal('${escapeHtml(listing.id)}')">
+          <h4 class="catalog-card-title" title="${escapeHtml(listing.title)}">
             ${escapeHtml(listing.title)}
           </h4>
 
@@ -583,11 +593,11 @@ function renderCatalogListings(listingsToRender = currentListings) {
 
           <div class="catalog-card-channels-bar">
             <span>${vCount} variação(ões)</span> • 
-            <span>Vinculado em ${linkedChannelsCount > 0 ? `${linkedChannelsCount + 1} canais` : '1 canal'} ${linkedBadges}</span>
+            <span>${linkedText} ${linkedBadges}</span>
           </div>
         </div>
 
-        <div class="catalog-card-footer">
+        <div class="catalog-card-footer" onclick="event.stopPropagation();">
           <button class="btn btn-primary btn-sm" style="flex: 1; font-weight: 700;" onclick="window.openListingDetailModal('${escapeHtml(listing.id)}')">
             ✏️ Editar Anúncio
           </button>

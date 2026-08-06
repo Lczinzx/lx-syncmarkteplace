@@ -73,7 +73,7 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
 
   // 1. Criar Produto Mestre Central Multicanal: "Painel Redondo Zoológico 50x50"
   const masterSku = 'Z - Red50 - Zoologico - 04';
-  const masterImageUrl = 'https://picsum.photos/seed/demo-mp-Z_Red50_Zoologico_04/360/360';
+  const masterImageUrl = 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=400&q=80';
   const masterProduct = await client.masterProduct.upsert({
     where: { id: 'mp-Z_Red50_Zoologico_04' },
     update: { name: 'Painel Redondo Zoológico 50x50', masterSku, imageUrl: masterImageUrl, updatedAt: new Date() },
@@ -93,10 +93,10 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
 
   // 2. Anúncios Equivalentes nos 4 Marketplaces
   const multiChannelListings = [
-    { accId: 'acc-shopee-demo', extId: 'FDM-0001', title: 'Painel Redondo Zoológico 50x50' },
-    { accId: 'acc-mercadolivre-demo', extId: 'FDM-ML-0001', title: 'Capa Painel Mesa Zoológico 50 cm' },
-    { accId: 'acc-tiktok-demo', extId: 'FDM-TT-0001', title: 'Painel Safari Red50' },
-    { accId: 'acc-amazon-demo', extId: 'FDM-AMZ-0001', title: 'Painel Redondo Festa Zoológico' }
+    { accId: 'acc-shopee-demo', extId: 'FDM-0001', title: 'Painel Redondo Zoológico 50x50', img: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=400&q=80' },
+    { accId: 'acc-mercadolivre-demo', extId: 'FDM-ML-0001', title: 'Capa Painel Mesa Zoológico 50 cm', img: 'https://images.unsplash.com/photo-1530103862676-de8c9debad1d?w=400&q=80' },
+    { accId: 'acc-tiktok-demo', extId: 'FDM-TT-0001', title: 'Painel Safari Red50', img: 'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?w=400&q=80' },
+    { accId: 'acc-amazon-demo', extId: 'FDM-AMZ-0001', title: 'Painel Redondo Festa Zoológico', img: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80' }
   ];
 
   let listingsCount = 0;
@@ -109,7 +109,7 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
           externalListingId: item.extId
         }
       },
-      update: { title: item.title, status: 'ACTIVE', updatedAt: new Date() },
+      update: { title: item.title, imageUrl: item.img, status: 'ACTIVE', updatedAt: new Date() },
       create: {
         id: `list-demo-${item.accId}-${item.extId}`,
         organizationId: org.id,
@@ -117,7 +117,7 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
         externalListingId: item.extId,
         title: item.title,
         status: 'ACTIVE',
-        imageUrl: `https://picsum.photos/seed/demo-${item.extId}/360/360`
+        imageUrl: item.img
       }
     });
 
@@ -128,7 +128,7 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
           externalVariationId: `var-${item.extId}-01`
         }
       },
-      update: { currentSku: masterSku, price: 99.90, stock: 15 },
+      update: { currentSku: masterSku, imageUrl: item.img, price: 99.90, stock: 15 },
       create: {
         id: `var-demo-${item.accId}-${item.extId}-01`,
         organizationId: org.id,
@@ -139,7 +139,7 @@ export async function ensureDemoData(client: PrismaClient): Promise<DemoSeedResu
         price: 99.90,
         stock: 15,
         status: 'ACTIVE',
-        imageUrl: `https://picsum.photos/seed/demo-${item.extId}/360/360`
+        imageUrl: item.img
       }
     });
 

@@ -1210,17 +1210,24 @@ input:checked + .slider:before {
 }
 
 /* ==========================================
-   SELLER CENTRAL CATALOG GRID (ESTILO CATALOGO 4 COLUNAS)
+   SELLER CENTRAL CATALOG GRID (ESTILO CATALOGO COMPACTO)
    ========================================== */
 
 .announcement-catalog-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 300px));
+  justify-content: start;
+  gap: 16px;
   margin-bottom: 32px;
 }
 
-@media (min-width: 1400px) {
+@media (min-width: 1600px) {
+  .announcement-catalog-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+@media (max-width: 1599px) and (min-width: 1200px) {
   .announcement-catalog-grid {
     grid-template-columns: repeat(4, 1fr);
   }
@@ -1247,20 +1254,22 @@ input:checked + .slider:before {
 .catalog-card {
   background: var(--bg-card);
   border: 1px solid var(--border-card);
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   position: relative;
+  max-width: 320px;
+  width: 100%;
 }
 
 .catalog-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-3px);
   border-color: rgba(239, 68, 68, 0.4);
-  box-shadow: 0 12px 30px rgba(239, 68, 68, 0.15), 0 4px 12px rgba(0,0,0,0.5);
+  box-shadow: 0 10px 24px rgba(239, 68, 68, 0.15), 0 4px 12px rgba(0,0,0,0.5);
 }
 
 .catalog-card.selected {
@@ -1272,6 +1281,7 @@ input:checked + .slider:before {
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
+  max-height: 230px;
   background: #120f12;
   overflow: hidden;
   cursor: pointer;
