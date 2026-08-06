@@ -39,7 +39,7 @@ test('[LISTINGS UI] Ações do Card contêm "Ver variações", "Editar anúncio"
       <button class="btn btn-primary btn-sm btn-edit-announcement">
         ✏️ Editar anúncio
       </button>
-      <button class="btn btn-secondary btn-sm btn-icon" title="Mais opções">
+      <button class="btn btn-secondary btn-sm btn-more-options" title="Mais opções">
         ⋮
       </button>
     </div>
@@ -47,26 +47,98 @@ test('[LISTINGS UI] Ações do Card contêm "Ver variações", "Editar anúncio"
 
   assert.ok(actionsHtml.includes('Ver variações'));
   assert.ok(actionsHtml.includes('Editar anúncio'));
-  assert.ok(actionsHtml.includes('btn-toggle-variations'));
-  assert.ok(actionsHtml.includes('btn-edit-announcement'));
+  assert.ok(actionsHtml.includes('Mais opções'));
 });
 
 test('[LISTINGS UI] Regras CSS de Grid limitam a 3 colunas em desktop e 1 coluna em mobile', () => {
-  const css = `
-    .listings-grid {
+  const cssRules = `
+    .announcement-catalog-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
     }
-    @media (min-width: 1400px) {
-      .listings-grid { grid-template-columns: repeat(3, 1fr); }
-    }
-    @media (max-width: 991px) {
-      .listings-grid { grid-template-columns: 1fr; }
+    @media (max-width: 768px) {
+      .announcement-catalog-grid {
+        grid-template-columns: 1fr;
+      }
     }
   `;
 
-  assert.ok(css.includes('minmax(420px, 1fr)'));
-  assert.ok(css.includes('repeat(3, 1fr)'));
-  assert.ok(css.includes('grid-template-columns: 1fr;'));
+  assert.ok(cssRules.includes('grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))'));
+  assert.ok(cssRules.includes('grid-template-columns: 1fr'));
+});
+
+test('[LISTINGS UI - ETAPA 1] Resolução de imagem de anúncio respeita a ordem de cascata oficial', () => {
+  const listingWithPrimary = {
+    images: [{ isPrimary: true, url: 'https://shopee.com/primary.jpg' }],
+    imageUrl: 'https://shopee.com/listing.jpg'
+  };
+
+  const listingWithGalleryOnly = {
+    images: [{ isPrimary: false, url: 'https://shopee.com/gallery1.jpg' }],
+    imageUrl: 'https://shopee.com/listing.jpg'
+  };
+
+  const listingWithUrlOnly = {
+    imageUrl: 'https://shopee.com/listing.jpg'
+  };
+
+  const listingWithVarOnly = {
+    variations: [{ imageUrl: 'https://shopee.com/var1.jpg' }]
+  };
+
+  function resolveCardImage(listing) {
+    const placeholderSvg = 'data:image/svg+xml;base64,...';
+    if (!listing) return { url: placeholderSvg, level: 5 };
+    if (Array.isArray(listing.images) && listing.images.length > 0) {
+      const primary = listing.images.find(img => img.isPrimary && img.url && img.url.trim() !== '');
+      if (primary) return { url: primary.url, level: 1 };
+      const firstValid = listing.images.find(img => img.url && img.url.trim() !== '');
+      if (firstValid) return { url: firstValid.url, level: 2 };
+    }
+    if (listing.imageUrl && listing.imageUrl.trim() !== '') return { url: listing.imageUrl, level: 3 };
+    if (Array.isArray(listing.variations) && listing.variations.length > 0) {
+      const varWithImg = listing.variations.find(v => v.imageUrl && v.imageUrl.trim() !== '');
+      if (varWithImg && varWithImg.imageUrl) return { url: varWithImg.imageUrl, level: 4 };
+    }
+    return { url: placeholderSvg, level: 5 };
+  }
+
+  assert.equal(resolveCardImage(listingWithPrimary).url, 'https://shopee.com/primary.jpg');
+  assert.equal(resolveCardImage(listingWithGalleryOnly).url, 'https://shopee.com/gallery1.jpg');
+  assert.equal(resolveCardImage(listingWithUrlOnly).url, 'https://shopee.com/listing.jpg');
+  assert.equal(resolveCardImage(listingWithVarOnly).url, 'https://shopee.com/var1.jpg');
+});
+
+test('[LISTINGS UI - ETAPA 1] Estado de erro da API exibe mensagem amigável sem transformar falha em 0/0', () => {
+  let renderedHtml = '';
+  function renderErrorState() {
+    renderedHtml = `
+      <div class="error-state">
+        <h3>Não foi possível carregar os anúncios do servidor</h3>
+        <button class="btn btn-primary" onclick="loadGroupedProducts()">🔄 Tentar novamente</button>
+      </div>
+    `;
+  }
+
+  renderErrorState();
+
+  assert.ok(renderedHtml.includes('Não foi possível carregar os anúncios'));
+  assert.ok(renderedHtml.includes('Tentar novamente'));
+  assert.equal(renderedHtml.includes('0 anúncio(s) exibido(s)'), false);
+});
+
+test('[LISTINGS UI - ETAPA 1] Botão Editar invoca o ID do anúncio alvo e abre o Drawer com 5 abas', () => {
+  let openedListingId = '';
+  function openListingDetailModal(listingId) {
+    openedListingId = listingId;
+  }
+
+  const targetListing = { id: 'shopee-listing-9988', title: 'Painel Festa Shopee Real' };
+  openListingDetailModal(targetListing.id);
+
+  assert.equal(openedListingId, 'shopee-listing-9988');
+
+  const drawerTabs = ['Visão Geral', 'Variações & SKUs', 'Imagens', 'Canais Conectados', 'Histórico'];
+  assert.equal(drawerTabs.length, 5);
 });

@@ -76,25 +76,40 @@ let selectedListingIds = new Set();
 const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4OCIgaGVpZ2h0PSI4OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIxMiIgZmlsbD0iIzE5MTIxNCIgc3Ryb2tlPSJyZ2JhKDIzOSwgNjgsIDY4LCAwLjMpIiBzdHJva2Utd2lkdGg9IjEiLz48dGV4dCB4PSI1MCUiIHk9IjQyJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI0VGNDQ0NCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSI4MDAiPkxYPC90ZXh0Pjx0ZXh0IHg9IjUwJSIgeT0iNjIlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOUNBM0FGIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSI5IiBmb250LXdlaWdodD0iNjAwIj5TeW5jPC90ZXh0Pjwvc3ZnPg==';
 
 function resolveCardImage(listing) {
-  if (listing.imageUrl && listing.imageUrl.trim() !== '') {
-    return { url: listing.imageUrl, source: 'LISTING', level: 1 };
-  }
+  if (!listing) return { url: placeholderSvg, source: 'PLACEHOLDER', level: 5 };
+
+  // 1. Imagem marcada como isPrimary
   if (Array.isArray(listing.images) && listing.images.length > 0) {
-    const primary = listing.images.find(img => img.isPrimary) || listing.images[0];
-    if (primary && primary.url && primary.url.trim() !== '') {
-      return { url: primary.url, source: 'LISTING_IMAGE_TABLE', level: 1 };
+    const primary = listing.images.find(img => img.isPrimary && img.url && img.url.trim() !== '');
+    if (primary) {
+      return { url: primary.url, source: 'PRIMARY_IMAGE', level: 1 };
+    }
+    // 2. Primeira imagem da galeria
+    const firstValid = listing.images.find(img => img.url && img.url.trim() !== '');
+    if (firstValid) {
+      return { url: firstValid.url, source: 'LISTING_IMAGE', level: 2 };
     }
   }
-  if (listing.masterProductImageUrl && listing.masterProductImageUrl.trim() !== '') {
-    return { url: listing.masterProductImageUrl, source: 'MASTER_PRODUCT', level: 2 };
+
+  // 3. listing.imageUrl
+  if (listing.imageUrl && listing.imageUrl.trim() !== '') {
+    return { url: listing.imageUrl, source: 'LISTING_URL', level: 3 };
   }
+
+  if (listing.masterProductImageUrl && listing.masterProductImageUrl.trim() !== '') {
+    return { url: listing.masterProductImageUrl, source: 'MASTER_PRODUCT', level: 3 };
+  }
+
+  // 4. Primeira variação com imagem
   if (Array.isArray(listing.variations) && listing.variations.length > 0) {
     const varWithImg = listing.variations.find(v => v.imageUrl && v.imageUrl.trim() !== '');
     if (varWithImg && varWithImg.imageUrl) {
-      return { url: varWithImg.imageUrl, source: 'VARIATION', level: 3 };
+      return { url: varWithImg.imageUrl, source: 'VARIATION_URL', level: 4 };
     }
   }
-  return { url: placeholderSvg, source: 'PLACEHOLDER', level: 4 };
+
+  // 5. Placeholder LX Sync
+  return { url: placeholderSvg, source: 'PLACEHOLDER', level: 5 };
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -449,16 +464,14 @@ async function loadGroupedProducts() {
     container.innerHTML = `
       <div class="listings-loading" style="grid-column: 1 / -1; text-align: center; padding: 64px;">
         <div class="spinner" style="width: 48px; height: 48px; border: 4px solid rgba(167, 243, 208, 0.3); border-top-color: #A7F3D0; border-radius: 50%; margin: 0 auto 16px; animation: spin 1s linear infinite;"></div>
-        <p style="color: var(--text-muted); font-size: 16px;">Carregando catálogo de anúncios do servidor...</p>
+        <p style="color: var(--text-muted); font-size: 16px;">Carregando anúncios da Shopee...</p>
       </div>
     `;
   }
 
   try {
-    const [resListings, resGroups] = await Promise.all([
-      ListingsAPI.getListings().catch(() => ({ listings: [] })),
-      GroupsAPI.getGroupedProducts().catch(() => ({ groups: [], unlinkedListings: [] }))
-    ]);
+    const resListings = await ListingsAPI.getListings();
+    const resGroups = await GroupsAPI.getGroupedProducts().catch(() => ({ groups: [], unlinkedListings: [] }));
 
     currentListings = (resListings && resListings.listings) || [];
     currentGroupedProducts = (resGroups && (resGroups.groups || resGroups.groupedProducts)) || [];
@@ -474,8 +487,17 @@ async function loadGroupedProducts() {
     updateSubtabBadges(resGroups?.summary);
     renderActiveSubtabView();
   } catch (err) {
-    console.warn('⚠️ [CATALOG LOAD FALLBACK]:', err.message);
-    renderActiveSubtabView();
+    console.error('❌ [CATALOG LOAD ERROR]:', err);
+    if (container) {
+      container.innerHTML = `
+        <div class="error-state" style="grid-column: 1 / -1; text-align: center; padding: 64px; background: var(--bg-card); border-radius: 16px; border: 2px dashed rgba(239, 68, 68, 0.4);">
+          <div style="font-size: 56px; margin-bottom: 16px;">⚠️</div>
+          <h3 style="color: #F87171; margin-bottom: 8px;">Não foi possível carregar os anúncios do servidor</h3>
+          <p style="color: var(--text-muted); margin-bottom: 24px;">Verifique sua autenticação ou conexão com o servidor.</p>
+          <button class="btn btn-primary" onclick="loadGroupedProducts()">🔄 Tentar novamente</button>
+        </div>
+      `;
+    }
   }
 }
 
