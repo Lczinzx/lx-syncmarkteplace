@@ -100,6 +100,11 @@ export interface ShopeeModelListResponse {
   request_id: string;
 }
 
+export const SHOPEE_HOSTS = {
+  production: 'https://partner.shopeemobile.com',
+  sandbox: 'https://openplatform.sandbox.test-stable.shopee.sg'
+} as const;
+
 export class ShopeeApiClient {
   private partnerId: number;
   private partnerKey: string;
@@ -147,9 +152,7 @@ export class ShopeeApiClient {
       throw err;
     }
 
-    this.baseUrl = this.environment === 'production'
-      ? 'https://partner.shopeemobile.com'
-      : 'https://partner.test-stable.shopeemobile.com';
+    this.baseUrl = SHOPEE_HOSTS[this.environment];
 
     this.redirectUrl = config?.redirectUrl || process.env.SHOPEE_REDIRECT_URL || 'https://lx-sync-api.onrender.com/api/marketplaces/shopee/callback';
   }

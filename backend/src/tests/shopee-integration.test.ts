@@ -360,13 +360,13 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
     assert.strictEqual(res.variationsDeleted, 0);
   });
 
-  it('15. Production nunca deve usar host sandbox e Sandbox nunca deve usar host production', () => {
+  it('15. Production nunca deve usar host sandbox e Sandbox usa openplatform.sandbox.test-stable.shopee.sg', () => {
     const prodClient = new ShopeeApiClient({ partnerId: 2005884, partnerKey: 'key123', environment: 'production' });
     assert.strictEqual(prodClient.getDiagnosticInfo().host, 'https://partner.shopeemobile.com');
     assert.strictEqual(prodClient.getDiagnosticInfo().host.includes('test-stable'), false);
 
-    const sbClient = new ShopeeApiClient({ partnerId: 2005884, partnerKey: 'key123', environment: 'sandbox' });
-    assert.strictEqual(sbClient.getDiagnosticInfo().host, 'https://partner.test-stable.shopeemobile.com');
+    const sbClient = new ShopeeApiClient({ partnerId: 1240386, partnerKey: 'key123', environment: 'sandbox' });
+    assert.strictEqual(sbClient.getDiagnosticInfo().host, 'https://openplatform.sandbox.test-stable.shopee.sg');
     assert.strictEqual(sbClient.getDiagnosticInfo().host.includes('partner.shopeemobile.com'), false);
   });
 
@@ -384,12 +384,17 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
     }, (err: any) => err.code === 'SHOPEE_PARTNER_ID_INVALID');
   });
 
-  it('17. Partner ID válido aparece corretamente na URL de autorização de produção e sandbox', () => {
+  it('17. Partner ID válido aparece corretamente na URL de autorização de produção e sandbox com host correto', () => {
     const prodClient = new ShopeeApiClient({ partnerId: 2005884, partnerKey: 'key123', environment: 'production' });
-    const authUrl = prodClient.getAuthUrl('test_state_123');
-    assert.ok(authUrl.startsWith('https://partner.shopeemobile.com/api/v2/shop/auth_partner'));
-    assert.ok(authUrl.includes('partner_id=2005884'));
-    assert.ok(!authUrl.includes('partner_id=0'));
+    const authUrlProd = prodClient.getAuthUrl('test_state_123');
+    assert.ok(authUrlProd.startsWith('https://partner.shopeemobile.com/api/v2/shop/auth_partner'));
+    assert.ok(authUrlProd.includes('partner_id=2005884'));
+
+    const sbClient = new ShopeeApiClient({ partnerId: 1240386, partnerKey: 'key123', environment: 'sandbox' });
+    const authUrlSb = sbClient.getAuthUrl('test_state_123');
+    assert.ok(authUrlSb.startsWith('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/shop/auth_partner'));
+    assert.ok(authUrlSb.includes('partner_id=1240386'));
+    assert.ok(!authUrlSb.includes('partner-test-stable.shopeemobile.com'));
   });
 
   it('18. Teste Determinístico de Assinatura HMAC: deve gerar o exato HMAC para entradas conhecidas sem alterar a chave', () => {
@@ -406,5 +411,21 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
 
     assert.strictEqual(signFromClient, expectedSign);
     assert.strictEqual(signFromClient.length, 64);
+  });
+
+  it('19. O timestamp do query string deve ser exatamente o mesmo utilizado no HMAC e o host não entra na base string', () => {
+    const sbClient = new ShopeeApiClient({ partnerId: 1240386, partnerKey: 'key123', environment: 'sandbox' });
+    const authUrl = sbClient.getAuthUrl('test_state_xyz');
+    const urlObj = new URL(authUrl);
+
+    assert.strictEqual(urlObj.origin, 'https://openplatform.sandbox.test-stable.shopee.sg');
+    assert.strictEqual(urlObj.pathname, '/api/v2/shop/auth_partner');
+    assert.strictEqual(urlObj.searchParams.get('partner_id'), '1240386');
+
+    const timestampInQuery = Number(urlObj.searchParams.get('timestamp'));
+    const signInQuery = urlObj.searchParams.get('sign');
+    const expectedSign = sbClient.generateSign('/api/v2/shop/auth_partner', timestampInQuery);
+
+    assert.strictEqual(signInQuery, expectedSign);
   });
 });
