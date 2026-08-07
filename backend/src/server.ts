@@ -33,6 +33,7 @@ import { ImageStorageService } from './services/image-storage.service.js';
 import { ShopeeAuthService } from './services/shopee-auth.service.js';
 import { SyncEngineService, SyncAlreadyRunningError } from './services/sync-engine.service.js';
 import { ShopeeMarketplaceAdapter } from './marketplaces/shopee.adapter.js';
+import { ShopeeApiClient } from './marketplaces/shopee-api.client.js';
 
 dotenv.config();
 
@@ -1359,6 +1360,25 @@ app.patch('/api/master-products/:id/primary-image', authenticateToken, async (re
    ENDPOINTS ADMINISTRATIVOS DE AUDITORIA E LIMPEZA DEMO (FASE 4.1.3)
    Acesso restrito estritamente a usuários com e-mail cadastrado em isAdminEmail
    ========================================================================== */
+
+app.get('/api/admin/shopee/config-diagnostic', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!isAdminEmail(req.user?.email || '')) {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Acesso restrito a administradores do sistema.' } });
+    }
+
+    const envParam = (req.query.environment as string)?.trim().toLowerCase() || 'sandbox';
+    const targetEnv = envParam === 'production' ? 'production' : 'sandbox';
+
+    const client = new ShopeeApiClient({ environment: targetEnv });
+    const diagnostic = client.getDiagnosticInfo();
+
+    return res.json(diagnostic);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: { code: 'DIAGNOSTIC_FAILED', message } });
+  }
+});
 
 app.get('/api/admin/cleanup-demo/dry-run', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {

@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'assert';
+import nodeCrypto from 'crypto';
 import { ShopeeApiClient } from '../marketplaces/shopee-api.client.js';
 import { ShopeeAuthService } from '../services/shopee-auth.service.js';
 import { ShopeeMarketplaceAdapter } from '../marketplaces/shopee.adapter.js';
@@ -389,5 +390,21 @@ describe('⚡ FASE 4.1.3 — TESTES INTEGRADOS DA SHOPEE (NORMALIZAÇÃO DE STAT
     assert.ok(authUrl.startsWith('https://partner.shopeemobile.com/api/v2/shop/auth_partner'));
     assert.ok(authUrl.includes('partner_id=2005884'));
     assert.ok(!authUrl.includes('partner_id=0'));
+  });
+
+  it('18. Teste Determinístico de Assinatura HMAC: deve gerar o exato HMAC para entradas conhecidas sem alterar a chave', () => {
+    const fixedPartnerId = 123456;
+    const fixedPartnerKey = 'test-secret';
+    const fixedTimestamp = 1700000000;
+    const fixedPath = '/api/v2/shop/auth_partner';
+
+    const client = new ShopeeApiClient({ partnerId: fixedPartnerId, partnerKey: fixedPartnerKey, environment: 'sandbox' });
+    const signFromClient = client.generateSign(fixedPath, fixedTimestamp);
+
+    const independentBaseString = `123456/api/v2/shop/auth_partner1700000000`;
+    const expectedSign = nodeCrypto.createHmac('sha256', 'test-secret').update(independentBaseString, 'utf8').digest('hex');
+
+    assert.strictEqual(signFromClient, expectedSign);
+    assert.strictEqual(signFromClient.length, 64);
   });
 });

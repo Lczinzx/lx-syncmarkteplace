@@ -131,14 +131,14 @@ export class ShopeeApiClient {
     }
 
     if (config?.partnerKey !== undefined) {
-      this.partnerKey = String(config.partnerKey);
+      this.partnerKey = String(config.partnerKey).trim();
     } else if (this.environment === 'production') {
-      this.partnerKey = process.env.SHOPEE_PRODUCTION_PARTNER_KEY || process.env.SHOPEE_PARTNER_KEY || '';
+      this.partnerKey = (process.env.SHOPEE_PRODUCTION_PARTNER_KEY || process.env.SHOPEE_PARTNER_KEY || '').trim();
     } else {
-      this.partnerKey = process.env.SHOPEE_SANDBOX_PARTNER_KEY || process.env.SHOPEE_PARTNER_KEY || '';
+      this.partnerKey = (process.env.SHOPEE_SANDBOX_PARTNER_KEY || process.env.SHOPEE_PARTNER_KEY || '').trim();
     }
 
-    if (!this.partnerKey || String(this.partnerKey).trim() === '') {
+    if (!this.partnerKey || this.partnerKey.length === 0) {
       const err = new Error(
         `A integração Shopee ${this.environment === 'production' ? 'Production' : 'Sandbox'} não está configurada corretamente (Partner Key ausente).`
       ) as any;
@@ -155,12 +155,26 @@ export class ShopeeApiClient {
   }
 
   public getDiagnosticInfo() {
+    const normalizedKey = (this.partnerKey || '').trim();
+    const keyFingerprint = crypto
+      .createHash('sha256')
+      .update(normalizedKey, 'utf8')
+      .digest('hex')
+      .slice(0, 12);
+
     return {
       environment: this.environment,
+      partnerId: this.partnerId,
       partnerIdConfigured: Boolean(this.partnerId && this.partnerId > 0),
       partnerIdValid: Boolean(Number.isSafeInteger(this.partnerId) && this.partnerId > 0),
+      partnerKeyConfigured: Boolean(normalizedKey.length > 0),
+      partnerKeyLength: normalizedKey.length,
+      partnerKeyFingerprint: keyFingerprint,
       host: this.baseUrl,
-      redirectConfigured: Boolean(this.redirectUrl && this.redirectUrl.trim() !== '')
+      path: '/api/v2/shop/auth_partner',
+      redirectUrl: this.redirectUrl,
+      redirectConfigured: Boolean(this.redirectUrl && this.redirectUrl.trim() !== ''),
+      timestampSkewSeconds: 0
     };
   }
 
@@ -204,6 +218,7 @@ export class ShopeeApiClient {
    * Algoritmo Oficial de Assinatura HMAC-SHA256 da Shopee Open API v2
    */
   public generateSign(path: string, timestamp: number, accessToken?: string, shopId?: number): string {
+    const normalizedKey = (this.partnerKey || '').trim();
     let baseString = `${this.partnerId}${path}${timestamp}`;
     if (accessToken) {
       baseString += accessToken;
@@ -211,7 +226,7 @@ export class ShopeeApiClient {
     if (shopId) {
       baseString += shopId;
     }
-    return crypto.createHmac('sha256', this.partnerKey).update(baseString).digest('hex');
+    return crypto.createHmac('sha256', normalizedKey).update(baseString, 'utf8').digest('hex');
   }
 
   /**
